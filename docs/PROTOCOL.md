@@ -19,7 +19,7 @@ Each statement carries a status:
 | Fact | Status |
 |---|---|
 | Classic Bluetooth, RFCOMM **channel 15**, no SDP lookup needed. | confirmed |
-| The channel accepts **one connection at a time**. A second client gets connection errors while the first holds it. This is why `nothing` funnels everything through a single owner. | confirmed |
+| The channel accepts **one connection at a time**: while a client holds it, a second one fails to connect with `EBUSY`. This is why `nothing` funnels everything through a single owner. | confirmed |
 | No pairing, authentication or session setup beyond the RFCOMM connection itself. | confirmed |
 | A single `read` may carry several frames, and a frame may be split across reads. | confirmed |
 
