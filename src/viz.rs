@@ -61,8 +61,9 @@ pub fn render(q: Quat, cols: usize, rows: usize, az: f64, el: f64, status: &str)
     let w = cols.saturating_sub(panel + 1).max(20);
     let h = rows.saturating_sub(1).max(10);
     let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
-    // Terminal cells are about twice as tall as wide: x is scaled by 2.
-    let scale = (w as f64 / 4.4).min(h as f64 / 2.4);
+    // Terminal cells are about twice as tall as wide: x is scaled by 2. The scene must fit
+    // a radius of 1.8 (axis tips at 1.7, cube corners at sqrt(3)) in both directions.
+    let scale = (w as f64 / 7.4).min(h as f64 / 3.8);
     let mut buf = vec![vec![(' ', Color::Dim); w]; h];
 
     let project = |p: [f64; 3]| -> (i64, i64) {
@@ -217,7 +218,36 @@ mod tests {
         let a = render(id, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "");
         let b = render(id, 100, 30, 0.0, 0.0, "");
         assert_ne!(a, b);
-        assert!(a.contains('X') && a.contains('Y') && a.contains('Z'));
+    }
+
+    #[test]
+    fn axis_labels_stay_in_frame() {
+        // Only look at the 3D area: the side panel also spells "X Y Z".
+        let strip = |s: &str| {
+            let mut out = String::new();
+            let mut esc = false;
+            for c in s.chars() {
+                match (esc, c) {
+                    (false, '\x1b') => esc = true,
+                    (true, c) if c.is_ascii_alphabetic() => esc = false,
+                    (true, _) => {}
+                    (false, c) => out.push(c),
+                }
+            }
+            out
+        };
+        for (q, az, el) in [
+            ([0.0, 0.0, 0.0, 1.0], DEFAULT_AZIMUTH, DEFAULT_ELEVATION),
+            ([0.0, 0.0, 0.0, 1.0], -60.0, 45.0),
+            ([0.259, 0.0, 0.0, 0.966], 120.0, -40.0),
+        ] {
+            let frame = render(q, 104, 28, az, el, "");
+            let scene: String =
+                strip(&frame).lines().map(|l| l.chars().take(104 - 31).collect::<String>()).collect();
+            for label in ['X', 'Y', 'Z'] {
+                assert!(scene.contains(label), "{label} missing at az {az} el {el}");
+            }
+        }
     }
 
     #[test]

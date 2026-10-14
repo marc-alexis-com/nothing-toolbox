@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="380" viewBox="0 0 960 380" role="img" aria-label="One owner holds the headset's single RFCOMM channel and serves every other nothing command through a local socket">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8be9fd"/>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8a8fa8"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, DejaVu Sans Mono, monospace; }
+    .title { font-size: 15px; font-weight: 700; fill: #f8f8f2; }
+    .body { font-size: 13px; fill: #c9cbd8; }
+    .muted { font-size: 12px; fill: #8a8fa8; }
+    .code { font-size: 13px; fill: #8be9fd; }
+    .box { fill: #343746; stroke: #4b4f63; stroke-width: 1.5; }
+    .owner { fill: #343746; stroke: #8be9fd; stroke-width: 2; }
+    .head { fill: #343746; stroke: #f8f8f2; stroke-width: 2; }
+  </style>
+  <rect width="960" height="380" rx="16" fill="#1e1f29"/>
+  <rect x="12" y="12" width="936" height="356" rx="12" fill="#282a36"/>
+
+  <!-- Clients -->
+  <text x="40" y="52" class="muted">short commands</text>
+  <rect x="40" y="66" width="250" height="52" rx="8" class="box"/>
+  <text x="56" y="88" class="code">nothing anc toggle</text>
+  <text x="56" y="106" class="muted">bound to a key</text>
+  <rect x="40" y="130" width="250" height="52" rx="8" class="box"/>
+  <text x="56" y="152" class="code">nothing status</text>
+  <text x="56" y="170" class="muted">bars, scripts, you</text>
+  <rect x="40" y="194" width="250" height="52" rx="8" class="box"/>
+  <text x="56" y="216" class="code">nothing eq set …</text>
+  <text x="56" y="234" class="muted">any other command</text>
+
+  <!-- Owner -->
+  <text x="370" y="52" class="muted">owner of the channel</text>
+  <rect x="370" y="66" width="250" height="180" rx="10" class="owner"/>
+  <text x="388" y="94" class="title">one process</text>
+  <text x="388" y="122" class="code">nothing daemon</text>
+  <text x="388" y="144" class="code">nothing watch</text>
+  <text x="388" y="166" class="code">nothing headtrack</text>
+  <text x="388" y="188" class="code">nothing gestures</text>
+  <text x="388" y="216" class="muted">fans events out,</text>
+  <text x="388" y="232" class="muted">ref-counts head tracking</text>
+
+  <!-- Headset -->
+  <text x="700" y="52" class="muted">headset</text>
+  <rect x="700" y="66" width="220" height="180" rx="10" class="head"/>
+  <text x="718" y="94" class="title">Nothing</text>
+  <text x="718" y="114" class="title">Headphone (1)</text>
+  <text x="718" y="142" class="body">RFCOMM channel 15</text>
+  <text x="718" y="164" class="body">ONE connection</text>
+  <text x="718" y="182" class="body">at a time</text>
+  <text x="718" y="216" class="muted">a second client</text>
+  <text x="718" y="232" class="muted">gets EBUSY</text>
+
+  <!-- Arrows: clients to owner through the socket -->
+  <line x1="292" y1="92" x2="366" y2="120" stroke="#8be9fd" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="292" y1="156" x2="366" y2="156" stroke="#8be9fd" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="292" y1="220" x2="366" y2="192" stroke="#8be9fd" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="296" y="272" class="muted">$XDG_RUNTIME_DIR/nothing.sock</text>
+
+  <!-- Owner to headset -->
+  <line x1="622" y1="140" x2="696" y2="140" stroke="#8be9fd" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="626" y="128" class="muted">frames</text>
+
+  <!-- Fallback when there is no owner -->
+  <path d="M165 248 V320 H810 V250" fill="none" stroke="#8a8fa8" stroke-width="1.5" stroke-dasharray="6 6" marker-end="url(#arrow-muted)"/>
+  <text x="300" y="342" class="muted">no owner running: the command opens the channel itself, for a few hundred ms</text>
+</svg>
