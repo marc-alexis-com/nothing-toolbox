@@ -29,7 +29,7 @@ diagnostic logs. No phone, no app, no account.
 | **Noise control** | high, mid, low, adaptive, off, transparency, and a toggle made for a keyboard shortcut |
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
 | **Sound** | EQ presets, and an advanced EQ you can edit band by band or load from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
-| **Events** | live feed of what the headset pushes (noise mode, Audiodo, state, battery…), with a hook to run a command on a magic-button event |
+| **Events** | live feed of what the headset pushes (battery, worn or not, noise mode, button…); turn the headset's button into a Linux button |
 | **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
 | **Controls** | remap the button and the wheel without the phone app |
 | **Gestures** | nod to play/pause, shake to skip, through any media command (`playerctl` by default) |
@@ -160,17 +160,20 @@ it): from any noise-cancelling level it goes to transparency, from anything else
 last noise-cancelling level. Failures are appended to `$XDG_RUNTIME_DIR/nothing.log`, since a
 key binding throws stderr away.
 
-**React to the headset's events.** `nothing watch` prints what the headset pushes, and
-`--on-magic` runs a command on each magic-button event (`E014`):
+**Turn the headset's button into a Linux button.** Bind the button to "channel hop", an
+action meant for Nothing phones: the headset then reports each press to `nothing` as a
+magic-button event (`E014`), and `--on-magic` runs any command on it.
 
 ```sh
+nothing controls set button press channel-hop
 nothing watch --on-magic 'playerctl play-pause'
 ```
 
-The command runs through `sh -c`, with the raw event payload in `$NOTHING_PAYLOAD`. Caveat: on
-the test unit, whose button is bound to noise control, pressing it produces a noise-control
-event, not `E014`; which binding (if any) makes the B170 send `E014` to a Linux client has not
-been established yet.
+The command runs through `sh -c`, with the event payload in `$NOTHING_PAYLOAD` (`20`, the
+action's code). `watch` must be running to receive the presses: it is the client the headset
+reports to. Bind the button back with `nothing controls set button press
+noise-anc-transparency`. Checked on a B170; with a button bound to noise control, a press only
+reports the new noise mode.
 
 **Battery in a status bar.** Waybar:
 
@@ -246,7 +249,7 @@ devices. `nothing` sorts every command code before anything leaves the computer:
 |---|---|---|
 | Reads | battery, state, EQ, logs list | always allowed |
 | Tested writes | noise mode, EQ preset, advanced EQ curve, bass boost, spatial, latency, multipoint, wear detection, control bindings | allowed: each one was written, read back and reverted on a real B170 |
-| Risky | codec change (reboots), factory reset, unpairing, test mode, any untested code | needs `--dangerous` |
+| Risky | codec change (tested, but it reboots the headset), factory reset, unpairing, test mode, any untested code | needs `--dangerous` |
 | Firmware update | the whole OTA class | **never sent**, flashing is not implemented |
 
 Writes are also refused when the headset does not report model `B170`, unless `--any-model`.
@@ -269,13 +272,14 @@ On the B170, with this tool:
 - every read, and every write listed under *Safety*, was run and read back (all six noise
   modes, bass boost levels 1–5, every control binding the app offers, advanced EQ curves from
   1 to 8 bands), then restored;
-- the noise-control and Audiodo events were observed, and the gesture detector was checked
-  against a labelled recording of real head movements;
+- the codec was switched to AAC and back to LDAC (each time the headset acknowledges, reboots
+  and is back in about 7 s, and `nothing` reconnects on its own);
+- the battery, state, noise-control, magic-button and Audiodo events were observed, and the
+  gesture detector was checked against a labelled recording of real head movements;
 - the advanced EQ's overall gain matches the vendor app's own computation to the last digit.
 
-Not yet exercised with this tool: `codec set` (the same frames were, by hand), the
-magic-button event `E014`, the battery and state events (`E001`, `E002`), and `logs dump` with
-an actual log to download (the test unit had none).
+Not yet exercised: `logs dump` with an actual log to download (the test unit had none), and
+the connection events `E00E` / `E016`.
 
 If you own another Nothing product and want to help, the output of `nothing status` and
 `nothing info` (remove the serial number and addresses) in an issue is a good start.
@@ -284,7 +288,7 @@ If you own another Nothing product and want to help, the output of `nothing stat
 
 | Symptom | Likely cause |
 |---|---|
-| `no connected Nothing headset found` | The headset is not connected over Bluetooth, or `bluetoothctl` is missing: pass `--mac`. |
+| `no connected Nothing headset found` | The headset is not connected over Bluetooth (plugging the charging cable drops the link on a B170), or `bluetoothctl` is missing: pass `--mac`. |
 | `Device or resource busy` from another tool | Something else holds the channel. Use `nothing` for both, or stop the other tool. |
 | The head-tracking view keeps turning while the head is still | Orientation drift inside the headset. Power-cycle it; gestures compensate on their own. |
 | A key binding does nothing | Look at `$XDG_RUNTIME_DIR/nothing.log`. |

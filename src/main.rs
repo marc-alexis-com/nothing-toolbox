@@ -854,7 +854,8 @@ fn codec(ctx: &Ctx, action: CodecAction) -> Res<()> {
                 CodecArg::Ldac => 2,
             };
             cmd::check(cmd::SET_CODEC, ctx.opts.dangerous)?;
-            // The headset reboots instead of acknowledging: a timeout is the normal outcome.
+            // A B170 acknowledges (0x701C [00]) and then reboots, back after about 7 s. A link
+            // closed by the reboot before the acknowledgement arrives is not an error either.
             match ctx.request(cmd::SET_CODEC, &[byte]) {
                 Ok(_) => {}
                 Err(e) if e.contains("no response") || e.contains("closed") => {}
@@ -1168,6 +1169,10 @@ fn describe_event(f: &frame::Frame) -> Option<String> {
             if p.first() == Some(&1) { "on" } else { "off" },
             if p.get(1) == Some(&1) { "up" } else { "down" }
         ),
+        cmd::EV_MAGIC_BUTTON => match p.first() {
+            Some(&a) => format!("action {}", decode::action_name(a)),
+            None => String::new(),
+        },
         cmd::EV_HEADTRACK => {
             let q = decode::quaternion(p)?;
             format!("q=({:+.3}, {:+.3}, {:+.3}, {:+.3})", q[0], q[1], q[2], q[3])

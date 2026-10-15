@@ -60,7 +60,7 @@ Example, ANC read: request `55 60 01 1e c0 01 00 01 03 9c 89`, answer
 | `0xF8xx` | Firmware update. **Not implemented by this tool.** |
 
 Most write acknowledgements are empty; seen exceptions: `0x700F [00]`, `0x7051 [02]` or `[03]`,
-`0x701A [00]`. **confirmed**
+`0x701A [00]`, `0x701C [00]`. **confirmed**
 
 ## 4. Commands
 
@@ -84,8 +84,11 @@ also becomes the "last level" (triplet type 2).
 
 `C007` (empty) → `4007`: `[n, (id, value) × n]`; value bit 7 = charging, bits 0–6 = percent.
 The B170 sends one entry with **id 6** (single device): `01 06 55` = 85 %, not charging.
-Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same format.
-**confirmed** (read); **app** (event)
+Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same format:
+`01 06 b2` was pushed when the charging cable was plugged in (50 %, charging). **confirmed**
+
+Plugging the charging cable makes a B170 drop its Bluetooth link a couple of seconds later;
+it came back about 40 s later, once unplugged. **confirmed** (once)
 
 ### 4.3 Identity
 
@@ -102,7 +105,8 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 
 `C00A` (empty) → `400A`: `[n, (key, mask) × n]`, key 6 = single device. Mask bits:
 0 in, 1 out, 2 worn, 3 music, 4 call, 5 firmware update, 6 fit test, 7 Bluetooth connected.
-`01 06 8c` = worn, playing, connected. Event `E002`: same format. **confirmed** (read)
+`01 06 8c` = worn, playing, connected. Event `E002`: same format, e.g. `01 06 8a` (out, playing,
+connected) pushed when the headset was taken off. **confirmed**
 
 ### 4.5 Audio settings
 
@@ -118,7 +122,7 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 | Multipoint | `C027` → `[s]` | `F01A [s]` | `1` on, `0` off; no reboot | confirmed |
 | Extra features | `C00E` → `[n, (id, value) × n]` | `F004 [01, id, value]` | id 1 = wear detection; other ids unknown | confirmed |
 | Audiodo profile | `C05A` → `[s]` | `F05C [s]` | `1` on, `0` off; the device then pushes `E019 [profile, sdk_link]` | confirmed |
-| Codec | `C029` → `[c]` | `F01C [c]` | `0` AAC, `2` LDAC (`1` LHDC, not on the B170). **Writing reboots the headset** (~6 s). | confirmed |
+| Codec | `C029` → `[c]` | `F01C [c]` | `0` AAC, `2` LDAC (`1` LHDC, not on the B170). The headset acknowledges (`701C [00]`), then **reboots** and is back in about 7 s with the new codec. | confirmed |
 
 Advanced EQ limits applied by the vendor app (**app**): at most 8 bands, gain −6..+6 dB in
 0.5 dB steps, 20–20 000 Hz, Q 0.1–10.
@@ -156,8 +160,8 @@ vendor app offers for each binding: **app** (see `nothing controls actions`). Ev
 action was written to the wheel's and the button's press-and-hold and read back unchanged
 (17 writes), and to the button's single press for `20` and `16`. **confirmed** (stored; what
 each action does when pressed was not tested one by one). Actions `1F`,
-`20` and `21` drive features of Nothing phones; whether binding `20` makes the headset send the
-magic-button event (`E014`) to a Linux client is **untested**.
+`20` and `21` drive features of Nothing phones. With the button bound to `20`, each press is
+reported to the RFCOMM client as `E014 [20]` (see 4.8). **confirmed**
 
 When the headset believes it is not worn (state bit `out`, see 4.4) and wear detection is on,
 presses on the button and the wheel seem to be ignored while the volume still works: both were
@@ -180,14 +184,14 @@ cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 
 | Code | Event | Payload | Status |
 |---|---|---|---|
-| `E001` | battery changed | as `4007` | app |
-| `E002` | device state changed | as `400A` | app |
-| `E003` | noise control changed | as `401E`: `01 07 00` transparency, `01 01 00` high, sent when the mode is changed on the headset (not after `F00F`) | confirmed |
-| `E009` | working status changed | 3 bytes, meaning unknown | inferred |
-| `E00E` | connection changed | 8 bytes (address + state) | inferred |
-| `E014` | magic button pressed | 2 bytes; the app reads byte 0 as an action code. Not seen from a B170 yet: with the button bound to noise control (`16`), a press sends `E003` instead | app |
+| `E001` | battery changed | as `4007`; seen when the charging cable was plugged in | confirmed |
+| `E002` | device state changed | as `400A`; seen when the headset was taken off | confirmed |
+| `E003` | noise control changed | as `401E`: `01 07 00` transparency, `01 01 00` high. Sent on every actual change, whether made on the headset or by `F00F` (then just before `700F`) | confirmed |
+| `E009` | working status changed | 3 bytes, meaning unknown; never seen in these tests | inferred |
+| `E00E` | connection changed | 8 bytes (address + state); not seen when the headset dropped and re-established its link with the computer | inferred |
+| `E014` | magic button pressed | `[action]`, 1 byte: `20` when the button is bound to "channel hop" (`20`). Sent to the RFCOMM client on each press; with the button bound to noise control (`16`), a press sends `E003` instead | confirmed |
 | `E015` | head tracking | quaternion, see 4.7 | confirmed |
-| `E016` | Bluetooth / LE Audio status | 2 bytes | inferred |
+| `E016` | Bluetooth / LE Audio status | 2 bytes; not seen in the same tests | inferred |
 | `E017` | rewind / fast forward | `[type, down]`; probably only sent to a Nothing phone | inferred |
 | `E018` | Essential Space | probably only sent to a Nothing phone | inferred |
 | `E019` | Audiodo state | `[profile, sdk_link]` | confirmed |

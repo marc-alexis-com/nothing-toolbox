@@ -9,6 +9,11 @@
 - `eq get` reports the advanced EQ when it is on (the preset byte does not change with it).
 - `raw` and the local socket now carry each frame's control word.
 - Docs: the magic-button hook is described as untested; source map completed.
+- `watch` names the action carried by a magic-button event; the README shows how to turn the
+  headset's button into a Linux button (bind it to `channel-hop`, then `watch --on-magic`).
+- A busy channel is retried for about a second before giving up.
+- Verified on a B170 with the user: battery, state and magic-button events, codec change
+  (AAC and back to LDAC), automatic reconnection after the headset drops the link.
 - Verified on a B170: all six noise modes, bass boost levels 1-5, and every control binding
   the app offers, each written, read back and restored.
 
