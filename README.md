@@ -50,19 +50,31 @@ diagnostic logs. No phone, no app, no account.
 
 ## Install
 
-Requirements: Linux with BlueZ, and a recent stable Rust toolchain to build. There are no
-native dependencies: `nothing` opens a plain RFCOMM socket, without D-Bus.
+Requirements: Linux with BlueZ. There are no native dependencies: `nothing` opens a plain
+RFCOMM socket, without D-Bus, and uses `bluetoothctl` only to find the connected headset.
+
+**Prebuilt binary** (static, x86_64 or aarch64), from the
+[releases page](https://github.com/marc-alexis-com/nothing-toolbox/releases):
+
+```sh
+curl -LO https://github.com/marc-alexis-com/nothing-toolbox/releases/latest/download/nothing-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf nothing-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+install -Dm755 nothing-v0.1.0-x86_64-unknown-linux-musl/nothing ~/.local/bin/nothing
+```
+
+Each archive also holds shell completions; a `.sha256` file sits next to it.
+
+**Nix** (flake, with completions):
+
+```sh
+nix run github:marc-alexis-com/nothing-toolbox -- status
+nix profile install github:marc-alexis-com/nothing-toolbox
+```
+
+**From source** (a recent stable Rust toolchain):
 
 ```sh
 cargo install --git https://github.com/marc-alexis-com/nothing-toolbox
-```
-
-or from a clone:
-
-```sh
-git clone https://github.com/marc-alexis-com/nothing-toolbox
-cd nothing-toolbox
-cargo install --path .
 ```
 
 Pair and connect the headset as usual (for example with `bluetoothctl`), then:
@@ -253,7 +265,8 @@ If you own another Nothing product and want to help, the output of `nothing stat
 ## Development
 
 ```sh
-cargo test                            # frames, decoders, safety policy, gesture detector, 3D view
+nix develop                           # optional: a shell with the Rust toolchain
+cargo test                            # frames, decoders, safety policy, gesture detector, 3D view, --help
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -271,6 +284,7 @@ The source is small and dependency-light (`clap`, `libc`):
 | `src/backend.rs` | local socket protocol, daemon detection |
 | `src/headtrack.rs` | quaternion maths and the nod/shake detector |
 | `src/viz.rs` | terminal 3D view |
+| `src/main.rs` | the command line |
 
 ## Acknowledgements
 
