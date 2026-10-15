@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const MODEL_TIMEOUT: Duration = Duration::from_millis(1500);
 const STREAM_TIMEOUT: Duration = Duration::from_millis(1500);
+const BUSY_RETRIES: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Opts {
@@ -112,10 +113,20 @@ impl Hub {
                 hub.on_link_event(ev);
             }
         });
-        let link = Arc::new(
-            Link::open(&mac, CONNECT_TIMEOUT, sink)
-                .map_err(|e| format!("cannot open RFCOMM channel 15 on {mac}: {e}"))?,
-        );
+        // The channel takes one client at a time and is occasionally still busy for a moment
+        // (seen once right after another command, never reproduced): retry briefly before
+        // giving up, about 0.9 s in all.
+        let mut attempt = 0;
+        let link = loop {
+            match Link::open(&mac, CONNECT_TIMEOUT, sink.clone()) {
+                Ok(l) => break Arc::new(l),
+                Err(e) if e.raw_os_error() == Some(libc::EBUSY) && attempt < BUSY_RETRIES => {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(150 * attempt as u64));
+                }
+                Err(e) => return Err(format!("cannot open RFCOMM channel 15 on {mac}: {e}")),
+            }
+        };
         let model =
             link.request(cmd::GET_MODEL, &[], MODEL_TIMEOUT).ok().and_then(|f| decode::model(&f.payload));
         *self.model.lock().unwrap() = model.clone();

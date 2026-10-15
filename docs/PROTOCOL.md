@@ -19,7 +19,7 @@ Each statement carries a status:
 | Fact | Status |
 |---|---|
 | Classic Bluetooth, RFCOMM **channel 15**, no SDP lookup needed. | confirmed |
-| The channel accepts **one connection at a time**: while a client holds it, a second one fails to connect with `EBUSY`. This is why `nothing` funnels everything through a single owner. | confirmed |
+| The channel accepts **one connection at a time**: while a client holds it, a second one fails to connect with `EBUSY`. This is why `nothing` funnels everything through a single owner. A connection right after another client closed was also refused once with `EBUSY` (not reproduced in six tries); `nothing` retries for about a second. | confirmed |
 | No pairing, authentication or session setup beyond the RFCOMM connection itself. | confirmed |
 | A single `read` may carry several frames, and a frame may be split across reads. | confirmed |
 
@@ -43,7 +43,7 @@ offset  size  field
 | Clients number frames 1…255 then wrap to 1; the answer **echoes the request's fsn**. | confirmed |
 | Pushed events carry **fsn 0**. | confirmed |
 | Some spontaneous reports reuse a response code with **fsn 0xFF** (EQ preset changed on the device). | app |
-| Debug-class answers may use control `0x0300` **without CRC** (FC22 packets). | app |
+| Debug-class answers (`7C03`, `7C21`, `7C09`) use the same control `0x0160` with CRC. The vendor app also parses FC22 packets sent with control `0x0300` and no CRC; not seen from a B170 (it had no log to send). | confirmed (`0x0160`); app (`0x0300`) |
 
 Example, ANC read: request `55 60 01 1e c0 01 00 01 03 9c 89`, answer
 `55 60 01 1e 40 06 00 01 01 01 00 02 01 00 47 ea`. **confirmed**
