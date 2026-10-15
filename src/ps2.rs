@@ -19,9 +19,9 @@ type V = [f32; 3];
 /// Camera distance, as in the terminal view: a mild perspective.
 const DISTANCE: f32 = 8.0;
 /// Height of the picture's centre.
-const LIFT: f32 = 0.35;
+const LIFT: f32 = 0.5;
 /// The scene spans about this many model units across the shorter side of the picture.
-const SPAN: f32 = 5.0;
+const SPAN: f32 = 3.8;
 /// The floor, under the cups, and its radius.
 const FLOOR_Z: f32 = -0.85;
 const FLOOR_R: f32 = 3.2;

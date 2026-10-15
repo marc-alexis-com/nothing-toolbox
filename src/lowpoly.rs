@@ -2,12 +2,12 @@
 //! product photos and orthographic renders (approximate, to a few millimetres), in the
 //! head-tracking frame of `model.rs`: Z up, +X the wearer's right, +Y the face.
 //!
-//! Worn, seen from outside the head along X, each cup is a stack: a leather cushion (28 mm),
-//! an aluminium shell (20 mm, a rounded rectangle 78 x 92 mm), and a clear cover standing
-//! 13 mm proud (an oval 57 x 69 mm, a little below the centre). Under the cover, a moulded
+//! Worn, seen from outside the head along X, each cup is a stack: a leather cushion (18 mm),
+//! an aluminium shell (12.5 mm, a rounded rectangle 78 x 92 mm), and a clear cover standing
+//! 9.5 mm proud (an oval 57 x 69 mm, a little below the centre). Under the cover, a moulded
 //! plate with a raised "cassette" frame and two round grilles. A flat Z-shaped strip of
 //! black metal hangs each cup by the top of its cover from a slider at the end of the
-//! headband, which is nearly a half circle with a pad under its top.
+//! headband, which is nearly an arc with a pad under its top.
 //!
 //! The right cup carries all the controls: a round button at the top front of its outer
 //! face, a roller and a paddle on its back edge, the ports on its bottom edge. Its plate has
@@ -315,24 +315,32 @@ impl Builder {
 const CUP_W: f64 = 78.0;
 const CUP_H: f64 = 92.0;
 const CUP_R: f64 = 22.0;
-/// Distances from the centre of the head along X: cushion, shell, cover.
-const CUSHION_IN: f64 = 74.0;
-const SHELL_IN: f64 = 102.0;
-const SHELL_OUT: f64 = 122.0;
-const COVER_OUT: f64 = 135.0;
+/// Distances from the centre along X: cushion tip, shell, cover. The stack is 40 mm (cushion
+/// 18, shell 12.5, cover 9.5, from the side render) and the whole headset 174 mm across, the
+/// spec sheet's width.
+const CUSHION_IN: f64 = 47.0;
+const SHELL_IN: f64 = CUSHION_IN + 18.0;
+const SHELL_OUT: f64 = SHELL_IN + 12.5;
+const COVER_OUT: f64 = SHELL_OUT + 9.5;
 /// The cover and plate, centred a little below the cup's centre.
 const COVER_W: f64 = 57.0;
 const COVER_H: f64 = 69.0;
 const COVER_Z: f64 = -4.0;
-const PLATE_OUT: f64 = 129.0;
-/// The headband: a half circle through the sliders' centre line, centred above the cups.
-const BAND_R: f64 = 104.0;
-const BAND_Z: f64 = 58.0;
+const PLATE_OUT: f64 = SHELL_OUT + 5.5;
+/// The headband: an arc through the sliders' centre line, `BAND_R` out from the middle and
+/// `BAND_R * BAND_K` high, centred above the cups.
+const BAND_R: f64 = SHELL_OUT;
+const BAND_K: f64 = 1.25;
+const BAND_Z: f64 = 52.0;
+/// Middle of the shell's thickness, where the controls sit on its edges.
+const EDGE_X: f64 = (SHELL_IN + SHELL_OUT) / 2.0;
 
 fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
     // Local frame: w outwards along X, u along Y (towards the face), v up.
     let f = Frame { o: [0.0; 3], u: [0.0, side, 0.0], v: [0.0, 0.0, 1.0], w: [side, 0.0, 0.0] };
     let n = 4;
+    // The cushion's profile was drawn for 28 mm; `k` fits it to its thickness.
+    let k = |x: f64| CUSHION_IN + (x - 74.0) * (SHELL_IN - CUSHION_IN) / 28.0;
     // The textured parts show the left cup's markings on the left one.
     let faced = |m: Material| match m.pattern {
         Pattern::Face { black, .. } => Material { pattern: Pattern::Face { black, left: !right }, ..m },
@@ -347,18 +355,18 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         n,
         &[
             (SHELL_IN, 1.0),
-            (97.0, 0.0),
-            (86.0, 0.6),
-            (79.0, 3.0),
-            (75.5, 7.0),
+            (k(97.0), 0.0),
+            (k(86.0), 0.6),
+            (k(79.0), 3.0),
+            (k(75.5), 7.0),
             (CUSHION_IN, 11.0),
-            (76.0, 13.0),
+            (k(76.0), 13.0),
         ],
         (false, false),
         true,
         c.cushion,
     );
-    b.cap(&f, &rrect(76.0 - 26.0, 90.0 - 26.0, 9.0, n), 76.0, -1.0, c.lining);
+    b.cap(&f, &rrect(76.0 - 26.0, 90.0 - 26.0, 9.0, n), k(76.0), -1.0, c.lining);
     // Shell, with a bevel round the outer face.
     b.loft(
         &f,
@@ -447,7 +455,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             w: [0.0, -1.0, 0.0],
         };
         b.loft(
-            &back(18.0, 112.0),
+            &back(18.0, EDGE_X),
             8.0,
             13.0,
             4.0,
@@ -458,7 +466,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             c.control,
         );
         b.loft(
-            &back(-4.0, 112.0),
+            &back(-4.0, EDGE_X),
             3.0,
             13.5,
             1.2,
@@ -470,7 +478,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         );
         // Ports on the bottom edge: USB-C towards the front, then the jack.
         let bottom = |y: f64| Frame {
-            o: [side * 112.0, y, -CUP_H / 2.0],
+            o: [side * EDGE_X, y, -CUP_H / 2.0],
             u: [side, 0.0, 0.0],
             v: [0.0, 1.0, 0.0],
             w: [0.0, 0.0, -1.0],
@@ -512,7 +520,7 @@ pub fn headset(edition: Edition) -> Vec<Tri> {
         (0..=n)
             .map(|i| {
                 let t = t0 + (t1 - t0) * i as f64 / n as f64;
-                (r * t.cos(), BAND_Z + r * t.sin())
+                (r * t.cos(), BAND_Z + r * BAND_K * t.sin())
             })
             .collect()
     };
@@ -535,7 +543,7 @@ pub fn headset(edition: Edition) -> Vec<Tri> {
                 .iter()
                 .map(|&(a, y)| {
                     let r = r0 - thick / 2.0 + a;
-                    [r * ct, y, BAND_Z + r * st]
+                    [r * ct, y, BAND_Z + r * BAND_K * st]
                 })
                 .collect()
         })
@@ -568,10 +576,14 @@ mod tests {
             // PS2 territory: hundreds to a couple of thousand triangles.
             assert!((800..3000).contains(&tris.len()), "{}", tris.len());
             let (lo, hi) = bounds(&tris);
-            // Ear to ear: both covers 135 mm from the centre; the cups 78 mm deep along Y.
-            assert!((hi[0] - 135.0 * MM).abs() < 1e-6 && (lo[0] + 135.0 * MM).abs() < 1e-6, "{lo:?} {hi:?}");
+            // Ear to ear: 174 mm across the covers; the cups 78 mm deep along Y.
+            assert!(
+                (hi[0] - COVER_OUT * MM).abs() < 1e-6 && (lo[0] + COVER_OUT * MM).abs() < 1e-6,
+                "{lo:?} {hi:?}"
+            );
             assert!((hi[1] - lo[1] - CUP_W * MM).abs() < 0.05, "{lo:?} {hi:?}");
-            // Cups centred on the ears, headband top about 120 mm above the cups.
+            assert!((2.0 * COVER_OUT - 174.0).abs() < 1.0);
+            // Cups centred on the ears, headband top about 100 mm above the cups.
             assert!((lo[2] + CUP_H / 2.0 * MM).abs() < 0.02, "{lo:?}");
             let above = (hi[2] - CUP_H / 2.0 * MM) / MM;
             assert!((100.0..130.0).contains(&above), "{above}");
