@@ -1431,7 +1431,11 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
                     i += 2;
                 }
                 b'q' | b'Q' => signals::request_stop(),
-                b'r' | b'R' | b' ' => reference = Some(q),
+                // Recentre: this pose is straight ahead, seen from straight behind.
+                b'r' | b'R' | b' ' => {
+                    reference = Some(q);
+                    (az, el) = (viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
+                }
                 b'l' => az += 8.0,
                 b'h' => az -= 8.0,
                 b'k' => el = (el + 8.0).min(85.0),

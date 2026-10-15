@@ -13,21 +13,19 @@ const RED: &str = "\x1b[91m";
 /// Width of the text panel on the right.
 const PANEL: usize = 30;
 
-pub const DEFAULT_AZIMUTH: f64 = 35.0;
-pub const DEFAULT_ELEVATION: f64 = 20.0;
+/// Straight behind the head, at its height.
+pub const DEFAULT_AZIMUTH: f64 = 0.0;
+pub const DEFAULT_ELEVATION: f64 = 0.0;
 
-/// Orbit camera: azimuth about the vertical (Z), then elevation; at 0/0 it faces the wearer.
-/// The picture is a mirror, like a webcam preview: the wearer's right is on the right of the
-/// screen and the headset turns the same way as the head. Flipping Y puts the camera, which
-/// looks along +Y from -Y in view space, in front of the face (+Y).
+/// Orbit camera: azimuth about the vertical (Z), then elevation. The camera looks along +Y
+/// from -Y: at 0/0 it is right behind the head, looking where the wearer looks, so the
+/// wearer's right is on the right of the screen (not a mirror).
 fn view_matrix(az_deg: f64, el_deg: f64) -> Mat3 {
     let (a, e) = (az_deg.to_radians(), el_deg.to_radians());
     let (ca, sa, ce, se) = (a.cos(), a.sin(), e.cos(), e.sin());
     let raz = [[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]];
     let rel = [[1.0, 0.0, 0.0], [0.0, ce, -se], [0.0, se, ce]];
-    let mirror = [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]];
-    // Mirror before the elevation, so that a positive elevation still looks from above.
-    matmul(&rel, &matmul(&mirror, &raz))
+    matmul(&rel, &raz)
 }
 
 fn apply(m: &Mat3, p: V3) -> V3 {
@@ -329,7 +327,7 @@ mod tests {
     #[test]
     fn camera_and_pose_change_the_picture() {
         let a = render(ID, Edition::White, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "");
-        let b = render(ID, Edition::White, 100, 30, 0.0, 0.0, "");
+        let b = render(ID, Edition::White, 100, 30, 35.0, 20.0, "");
         let c =
             render([0.259, 0.0, 0.0, 0.966], Edition::White, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "");
         assert_ne!(a, b);
@@ -363,14 +361,13 @@ mod tests {
     }
 
     #[test]
-    fn the_view_is_a_mirror_seen_from_above() {
-        // Default camera, head at rest: the face is turned towards the camera, the wearer's
-        // right ear is on the right of the screen, and the top of the head is nearer the
-        // camera than the bottom (seen from above).
-        let m = view_matrix(0.0, DEFAULT_ELEVATION);
-        assert!(apply(&m, [0.0, 1.0, 0.0])[1] < -0.9);
+    fn the_default_view_is_from_behind() {
+        // Head at rest: the face looks away from the camera, the wearer's right ear is on the
+        // right of the screen; a positive elevation looks from above.
+        let m = view_matrix(DEFAULT_AZIMUTH, DEFAULT_ELEVATION);
+        assert!(apply(&m, [0.0, 1.0, 0.0])[1] > 0.99);
         assert!(apply(&m, [1.0, 0.0, 0.0])[0] > 0.99);
-        assert!(apply(&m, [0.0, 0.0, 1.0])[1] < 0.0);
+        assert!(apply(&view_matrix(0.0, 20.0), [0.0, 0.0, 1.0])[1] < 0.0);
     }
 
     #[test]
@@ -378,8 +375,8 @@ mod tests {
         // From the wearer's right the red dot on the right cup shows; from the left, the left
         // cup hides it.
         let red = |p: &Picture| p.px.iter().flatten().filter(|c| c[0] > 0.5 && c[1] < 0.2).count();
-        assert!(red(&rasterize(ID, Edition::White, 80, 60, 90.0, 0.0)) > 0);
-        assert_eq!(red(&rasterize(ID, Edition::White, 80, 60, -90.0, 0.0)), 0);
+        assert!(red(&rasterize(ID, Edition::White, 80, 60, -90.0, 0.0)) > 0);
+        assert_eq!(red(&rasterize(ID, Edition::White, 80, 60, 90.0, 0.0)), 0);
     }
 
     #[test]
@@ -387,6 +384,16 @@ mod tests {
         let f = render(ID, Edition::White, 104, 28, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "status");
         assert_eq!(f.lines().count(), 28);
         assert!(f.contains('▀'));
+    }
+
+    #[test]
+    fn the_right_cup_marker_shows_from_behind() {
+        let p = rasterize(ID, Edition::White, 80, 60, DEFAULT_AZIMUTH, DEFAULT_ELEVATION);
+        let red: Vec<usize> = (0..p.px.len())
+            .filter(|&i| p.px[i].is_some_and(|c| c[0] > 0.5 && c[1] < 0.2))
+            .map(|i| i % p.pw)
+            .collect();
+        assert!(!red.is_empty() && red.iter().all(|&x| x > p.pw / 2), "{red:?}");
     }
 
     #[test]

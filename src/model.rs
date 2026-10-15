@@ -156,6 +156,8 @@ pub fn headset(edition: Edition) -> Vec<Tri> {
     }
     // Right cup (+X, see the module notes): a red dot near the top of the outer face.
     b.prism(&circle(0.085, 16), -0.14, 0.30, CUP_OUT + 0.03, CUP_OUT + 0.05, ACCENT, 0.0);
+    // And on the back of the same cup, the side seen by the default camera.
+    b.cuboid([0.98, -0.44, 0.12], [1.12, -0.40, 0.34], ACCENT, 0.0);
     let arc: Vec<(f64, f64)> = (0..=48)
         .map(|i| {
             let t = std::f64::consts::PI * i as f64 / 48.0;
