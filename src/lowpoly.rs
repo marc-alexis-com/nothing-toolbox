@@ -11,8 +11,8 @@
 //!
 //! The right cup carries all the controls: a round button at the top front of its outer
 //! face, a roller and a paddle on its back edge, the ports on its bottom edge. Its plate has
-//! a red square where the left one has a white square. One liberty for the viewer: the
-//! paddle is drawn flat white, so that the right cup also shows from behind.
+//! a red square where the left one has a white square. The paddle is a
+//! lit button of the edition's own tone (light grey, or a lighter charcoal on the black one).
 //!
 //! The geometry comes from these numbers. The outer face of a cup (shell, plate, grilles, the
 //! squares, the button) carries a texture baked from a render of the product, pixelised to
@@ -87,8 +87,6 @@ pub struct Palette {
 }
 
 pub fn palette(e: Edition) -> Palette {
-    // The paddle is drawn flat white, so that it shows whatever the light.
-    let white = |c: u32| Material { glow: true, ..plain(hex(c), 0.0, 1.0, 0.0) };
     let face = |black: bool, m: Material| Material { pattern: Pattern::Face { black, left: false }, ..m };
     match e {
         Edition::White => Palette {
@@ -103,7 +101,7 @@ pub fn palette(e: Edition) -> Palette {
             frame: face(false, plain(hex(0xdddfe0), 0.2, 12.0, 0.0)),
             grille: face(false, plain(hex(0x8e9296), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.16, ..plain(hex(0xeaf2f6), 1.2, 60.0, 0.3) },
-            paddle: white(0xf6f6f6),
+            paddle: plain(hex(0xdfe1e4), 0.45, 16.0, 0.0),
             control: plain(hex(0xd7dadd), 0.5, 18.0, 0.3),
             port: plain(hex(0x141516), 0.0, 1.0, 0.0),
         },
@@ -119,7 +117,7 @@ pub fn palette(e: Edition) -> Palette {
             frame: face(true, plain(hex(0x34373b), 0.2, 12.0, 0.0)),
             grille: face(true, plain(hex(0x1f2022), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.30, ..plain(hex(0x4b5058), 1.2, 60.0, 0.3) },
-            paddle: white(0xe4e4e4),
+            paddle: plain(hex(0x5a5e64), 0.45, 16.0, 0.0),
             control: plain(hex(0x3d4045), 0.5, 18.0, 0.3),
             port: plain(hex(0x0e0f10), 0.0, 1.0, 0.0),
         },
@@ -471,7 +469,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             9.0,
             4.5,
             3,
-            &[(SHELL_OUT - 1.0, 0.0), (SHELL_OUT + 1.6, 0.0), (SHELL_OUT + 2.2, 1.0)],
+            &[(SHELL_OUT - 1.0, 0.0), (SHELL_OUT + 0.4, 0.0), (SHELL_OUT + 0.8, 1.0)],
             (false, true),
             true,
             c.control,
@@ -483,25 +481,14 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             v: [0.0, 0.0, 1.0],
             w: [0.0, -1.0, 0.0],
         };
-        // The roller sits in a dark slot, hardly proud of the edge.
-        b.loft(
-            &back(18.0, EDGE_X),
-            11.0,
-            16.5,
-            5.0,
-            2,
-            &[(-0.5, 0.0), (0.15, 0.0)],
-            (false, true),
-            false,
-            c.port,
-        );
+        // The roller: a capsule hardly proud of the edge.
         b.loft(
             &back(18.0, EDGE_X),
             7.5,
             12.5,
             3.5,
             2,
-            &[(-1.0, 0.0), (0.3, 0.0), (0.6, 0.6)],
+            &[(-1.0, 0.0), (0.2, 0.0), (0.5, 0.6)],
             (false, true),
             true,
             c.control,
