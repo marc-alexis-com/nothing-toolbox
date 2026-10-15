@@ -470,25 +470,31 @@ mod tests {
             .collect()
     }
 
-    fn red_columns(img: &Rgb8) -> Vec<usize> {
+    /// Columns of the picture holding the glowing white of the paddle: nothing else is as
+    /// bright on the black edition.
+    fn paddle_columns(img: &Rgb8) -> Vec<usize> {
         img.px
             .chunks(3)
             .enumerate()
-            .filter(|(_, c)| c[0] > 150 && c[1] < 90 && c[2] < 90)
+            .filter(|(_, c)| c.iter().all(|&v| v >= 215))
             .map(|(i, _)| i % img.w)
             .collect()
     }
 
     #[test]
     fn the_right_cup_shows_from_behind() {
-        // Default camera, head at rest: the red paddle on the back of the right cup is on the
-        // right half of the picture, and nothing red on the left.
-        for ed in [Edition::White, Edition::Black] {
-            let img =
-                render([0.0, 0.0, 0.0, 1.0], ed, 160, 120, viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
-            let red = red_columns(&img);
-            assert!(!red.is_empty() && red.iter().all(|&x| x > img.w / 2), "{red:?}");
-        }
+        // Default camera, head at rest: the paddle on the back of the right cup is on the
+        // right half of the picture, and nothing as bright on the left.
+        let img = render(
+            [0.0, 0.0, 0.0, 1.0],
+            Edition::Black,
+            160,
+            120,
+            viz::DEFAULT_AZIMUTH,
+            viz::DEFAULT_ELEVATION,
+        );
+        let lit = paddle_columns(&img);
+        assert!(!lit.is_empty() && lit.iter().all(|&x| x > img.w / 2), "{lit:?}");
     }
 
     #[test]

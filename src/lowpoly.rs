@@ -12,7 +12,7 @@
 //! The right cup carries all the controls: a round button at the top front of its outer
 //! face, a roller and a paddle on its back edge, the ports on its bottom edge. Its plate has
 //! a red square where the left one has a white square. One liberty for the viewer: the
-//! paddle is red, so that the right cup also shows from behind.
+//! paddle is drawn flat white, so that the right cup also shows from behind.
 //!
 //! The geometry comes from these numbers. The outer face of a cup (shell, plate, grilles, the
 //! squares, the button) carries a texture baked from a render of the product, pixelised to
@@ -88,40 +88,41 @@ pub struct Palette {
 }
 
 pub fn palette(e: Edition) -> Palette {
-    let red = Material { glow: true, ..plain(hex(0xc8302f), 0.0, 1.0, 0.0) };
+    // The paddle is drawn flat white, so that it shows whatever the light.
+    let white = |c: u32| Material { glow: true, ..plain(hex(c), 0.0, 1.0, 0.0) };
     let face = |black: bool, m: Material| Material { pattern: Pattern::Face { black, left: false }, ..m };
     match e {
         Edition::White => Palette {
-            shell: plain(hex(0xc9ccd0), 0.55, 18.0, 0.45),
+            shell: plain(hex(0xc9ccd0), 0.10, 6.0, 0.0),
             cushion: plain(hex(0x101112), 0.22, 9.0, 0.0),
             lining: plain(hex(0x060607), 0.0, 1.0, 0.0),
             band: plain(hex(0xdcdedf), 0.25, 12.0, 0.0),
             slider: plain(hex(0xd2d4d6), 0.30, 14.0, 0.0),
             pad: plain(hex(0x262728), 0.12, 8.0, 0.0),
             strap: plain(hex(0x26282a), 0.6, 30.0, 0.55),
-            face: face(false, plain(hex(0xc9ccd0), 0.45, 18.0, 0.15)),
+            face: face(false, plain(hex(0xc9ccd0), 0.10, 6.0, 0.0)),
             plate: face(false, plain(hex(0xd3d5d7), 0.15, 10.0, 0.0)),
             frame: face(false, plain(hex(0xdddfe0), 0.2, 12.0, 0.0)),
             grille: face(false, plain(hex(0x8e9296), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.16, ..plain(hex(0xeaf2f6), 1.2, 60.0, 0.3) },
-            paddle: red,
+            paddle: white(0xf6f6f6),
             control: plain(hex(0xd7dadd), 0.5, 18.0, 0.3),
             port: plain(hex(0x141516), 0.0, 1.0, 0.0),
         },
         Edition::Black => Palette {
-            shell: plain(hex(0x34373c), 0.55, 18.0, 0.45),
+            shell: plain(hex(0x34373c), 0.10, 6.0, 0.0),
             cushion: plain(hex(0x0c0d0e), 0.22, 9.0, 0.0),
             lining: plain(hex(0x050506), 0.0, 1.0, 0.0),
             band: plain(hex(0x3c3e41), 0.25, 12.0, 0.0),
             slider: plain(hex(0x393b3e), 0.30, 14.0, 0.0),
             pad: plain(hex(0x1e1f20), 0.12, 8.0, 0.0),
             strap: plain(hex(0x1c1d1f), 0.6, 30.0, 0.55),
-            face: face(true, plain(hex(0x34373c), 0.45, 18.0, 0.15)),
+            face: face(true, plain(hex(0x34373c), 0.10, 6.0, 0.0)),
             plate: face(true, plain(hex(0x2c2f33), 0.15, 10.0, 0.0)),
             frame: face(true, plain(hex(0x34373b), 0.2, 12.0, 0.0)),
             grille: face(true, plain(hex(0x1f2022), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.30, ..plain(hex(0x4b5058), 1.2, 60.0, 0.3) },
-            paddle: Material { rgb: hex(0xa8262c), ..red },
+            paddle: white(0xe4e4e4),
             control: plain(hex(0x3d4045), 0.5, 18.0, 0.3),
             port: plain(hex(0x0e0f10), 0.0, 1.0, 0.0),
         },
@@ -346,9 +347,9 @@ const CUP_W: f64 = 78.0;
 const CUP_H: f64 = 92.0;
 const CUP_R: f64 = 22.0;
 /// Distances from the centre along X: cushion tip, shell, cover. The stack is 40 mm (cushion
-/// 18, shell 12.5, cover 9.5, from the side render) and the whole headset 174 mm across, the
-/// spec sheet's width.
-const CUSHION_IN: f64 = 47.0;
+/// 18, shell 12.5, cover 9.5, from the side render) and the whole headset about 190 mm across
+/// (the spec sheet gives 174 mm with the cups swivelled in).
+const CUSHION_IN: f64 = 54.0;
 const SHELL_IN: f64 = CUSHION_IN + 18.0;
 const SHELL_OUT: f64 = SHELL_IN + 12.5;
 const COVER_OUT: f64 = SHELL_OUT + 9.5;
@@ -360,8 +361,10 @@ const PLATE_OUT: f64 = SHELL_OUT + 5.5;
 /// The headband: an arc through the sliders' centre line, `BAND_R` out from the middle and
 /// `BAND_R * BAND_K` high, centred above the cups.
 const BAND_R: f64 = SHELL_OUT;
-const BAND_K: f64 = 1.25;
-const BAND_Z: f64 = 52.0;
+const BAND_Z: f64 = 50.0;
+/// Top of the headband: 97 mm above the cups, 189 mm overall as in the spec sheet.
+const BAND_TOP: f64 = 143.0;
+const BAND_K: f64 = (BAND_TOP - BAND_Z) / BAND_R;
 /// Middle of the shell's thickness, where the controls sit on its edges.
 const EDGE_X: f64 = (SHELL_IN + SHELL_OUT) / 2.0;
 
@@ -378,27 +381,17 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
     // into a deep opening that ends in a dark mesh (the profile is the tube's section).
     let tip = CUSHION_IN;
     let outline = |e: f64| oval(CUSH_W - 2.0 * e, CUSH_H - 2.0 * e, 24);
-    b.loft_with(
-        &f,
-        &outline,
-        &[
-            (SHELL_IN, 1.0),
-            (tip + 16.0, 0.0),
-            (tip + 12.0, 0.3),
-            (tip + 7.0, 1.5),
-            (tip + 3.5, 4.5),
-            (tip + 1.0, 8.0),
-            (tip, 10.5),
-            (tip + 1.0, 13.5),
-            (tip + 3.5, 16.0),
-            (tip + 7.0, 18.0),
-            (tip + 11.0, CUSH_WALL),
-        ],
-        (false, false),
-        true,
-        c.cushion,
-    );
-    b.cap(&f, &outline(CUSH_WALL), tip + 11.5, -1.0, c.lining);
+    // The section: the outer wall, then a half circle of radius `r` over the tip (so that
+    // the cushion is round against the ear), then down the inner wall into the opening.
+    let r = CUSH_WALL / 2.0;
+    let mut rings = vec![(SHELL_IN, 1.0), (tip + r + 5.0, 0.0), (tip + r + 2.0, 0.2)];
+    for i in 0..=8 {
+        let t = std::f64::consts::PI * i as f64 / 8.0;
+        rings.push((tip + r * (1.0 - t.sin()), r * (1.0 - t.cos())));
+    }
+    rings.extend([(tip + r + 2.0, CUSH_WALL), (tip + r + 4.0, CUSH_WALL)]);
+    b.loft_with(&f, &outline, &rings, (false, false), true, c.cushion);
+    b.cap(&f, &outline(CUSH_WALL), tip + r + 4.5, -1.0, c.lining);
     // Shell, with a bevel round the outer face.
     b.loft(
         &f,
@@ -608,17 +601,17 @@ mod tests {
             // PS2 territory: a few thousand triangles.
             assert!((800..3600).contains(&tris.len()), "{}", tris.len());
             let (lo, hi) = bounds(&tris);
-            // Ear to ear: 174 mm across the covers; the cups 78 mm deep along Y.
+            // Ear to ear: 188 mm across the covers; the cups 78 mm deep along Y.
             assert!(
                 (hi[0] - COVER_OUT * MM).abs() < 1e-6 && (lo[0] + COVER_OUT * MM).abs() < 1e-6,
                 "{lo:?} {hi:?}"
             );
             assert!((hi[1] - lo[1] - CUP_W * MM).abs() < 0.05, "{lo:?} {hi:?}");
-            assert!((2.0 * COVER_OUT - 174.0).abs() < 1.0);
-            // Cups centred on the ears, headband top about 100 mm above the cups.
+            assert!((2.0 * COVER_OUT - 188.0).abs() < 1.0);
+            // Cups centred on the ears, headband top about 97 mm above the cups.
             assert!((lo[2] + CUP_H / 2.0 * MM).abs() < 0.02, "{lo:?}");
             let above = (hi[2] - CUP_H / 2.0 * MM) / MM;
-            assert!((100.0..130.0).contains(&above), "{above}");
+            assert!((90.0..130.0).contains(&above), "{above}");
         }
     }
 
