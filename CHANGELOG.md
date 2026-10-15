@@ -10,8 +10,9 @@
   it), starts seen from straight behind, and `r` brings the camera back there.
 - Head-tracking axes measured: +X is the wearer's right, +Y the face, Z up (looking down turns
   the head about X by a negative angle). Documented in docs/PROTOCOL.md.
-- README: an animation of the 3D view replaying a real recording, both editions; in the banner
-  and the architecture diagram, the white headset turns on itself.
+- README: an animation of the 3D view replaying a real recording, both editions, pixelated as
+  in kitty; in the banner and the architecture diagram, the white headset floats and turns on
+  itself.
 
 ## 0.3.0 — 2026-10-15
 

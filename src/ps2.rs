@@ -493,48 +493,35 @@ mod tests {
         assert_eq!(big.px, [1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6, 1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6]);
     }
 
-    /// The headset alone, RGBA: no backdrop, no floor, drawn `ss` x `ss` times finer and
-    /// averaged down, coverage becoming alpha.
-    fn cutout(q: Quat, edition: Edition, w: usize, h: usize, az: f64, el: f64, ss: usize) -> Vec<u8> {
-        let (sw, sh) = (w * ss, h * ss);
-        let cam = Camera::new(sw, sh, az, el);
+    /// The headset alone, RGBA, as the kitty view draws it (15-bit colour, ordered dither)
+    /// but with no backdrop and no floor: transparent wherever the model is not.
+    fn cutout(q: Quat, edition: Edition, w: usize, h: usize, az: f64, el: f64) -> Vec<u8> {
+        let cam = Camera::new(w, h, az, el);
         let m = mat32(&matmul(&viz::view_matrix(az, el), &mat_from_quat(q)));
-        let mut fb = Frame { color: vec![[0.0; 3]; sw * sh], depth: vec![0.0; sw * sh] };
+        let mut fb = Frame { color: vec![[0.0; 3]; w * h], depth: vec![0.0; w * h] };
         draw_model(&transformed(&m, mesh(edition), &cam, false), &cam, &mut fb);
         let mut px = Vec::with_capacity(w * h * 4);
-        for y in 0..h {
-            for x in 0..w {
-                let (mut sum, mut n) = ([0.0f32; 3], 0);
-                for dy in 0..ss {
-                    for dx in 0..ss {
-                        let i = (y * ss + dy) * sw + x * ss + dx;
-                        if fb.depth[i] != 0.0 {
-                            (0..3).for_each(|k| sum[k] += fb.color[i][k]);
-                            n += 1;
-                        }
-                    }
-                }
-                let c = sum.map(|v| (v / n.max(1) as f32).max(0.0).powf(1.0 / 2.2).min(1.0) * 255.0);
-                px.extend(c.map(|v| v.round() as u8));
-                px.push((255 * n / (ss * ss)) as u8);
-            }
+        for (i, c) in fb.color.iter().enumerate() {
+            px.extend(quantise(*c, i % w, i / w));
+            px.push(if fb.depth[i] != 0.0 { 255 } else { 0 });
         }
         px
     }
 
     /// Writes $NOTHING_PREVIEW_DIR/frame-NNN.png: the white headset alone, on a transparent
-    /// background, turning once on itself in N steps (the README's banner and diagram).
-    /// `cargo test --release spin -- --ignored`, with W, H and N to size it.
+    /// background, turning once on itself in N steps, at the kitty view's coarse resolution
+    /// (the README's banner and diagram). `cargo test --release spin -- --ignored`, with W, H
+    /// and N to size it.
     #[test]
     #[ignore]
     fn spin() {
         let dir = std::env::var("NOTHING_PREVIEW_DIR").expect("NOTHING_PREVIEW_DIR");
         let size = |var: &str, default| std::env::var(var).map_or(default, |v| v.parse().unwrap());
-        let (w, h, n) = (size("W", 760), size("H", 640), size("N", 40));
+        let (w, h, n) = (size("W", 160), size("H", 136), size("N", 48));
         for i in 0..n {
             let a = std::f64::consts::TAU * i as f64 / n as f64;
             let q = [0.0, 0.0, (a / 2.0).sin(), (a / 2.0).cos()];
-            let px = cutout(q, Edition::White, w, h, 0.0, 12.0, 3);
+            let px = cutout(q, Edition::White, w, h, 0.0, 12.0);
             std::fs::write(format!("{dir}/frame-{i:03}.png"), png_of(w, h, 4, &px)).unwrap();
         }
     }
@@ -548,7 +535,8 @@ mod tests {
         let id = [0.0, 0.0, 0.0, 1.0];
         let rec = recording();
         let at = |t: f64| rec.iter().min_by(|a, b| (a.0 - t).abs().total_cmp(&(b.0 - t).abs())).unwrap().1;
-        let (w, h) = (std::env::var("W").map(|v| v.parse().unwrap()).unwrap_or(320), 240);
+        let size = |var: &str, default| std::env::var(var).map_or(default, |v| v.parse().unwrap());
+        let (w, h) = (size("W", 320), size("H", 240));
         for (name, ed) in [("white", Edition::White), ("black", Edition::Black)] {
             for (view, q, az, el) in [
                 ("default-behind", id, viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION),

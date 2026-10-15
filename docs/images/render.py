@@ -42,25 +42,27 @@ def headset_frames():
     return [p.crop(box) for p in pics]
 
 
+TURN_MS = 4267  # one turn of the headset: 25 % slower than a first try at 3.2 s
+FLOAT = 3  # how far the turning headset floats up and down, in its own (coarse) pixels
+
+
 def headset(frames, img, x0, y0, w, h):
     """The banner or diagram `img`, once per headset frame, with the frame fitted into the
-    w x h box at (x0, y0) (pixel art enlarged by a whole factor, anything else resampled)."""
+    w x h box at (x0, y0). The frames are pixel art: enlarged by a whole factor, so their pixels
+    stay sharp squares. An animation also floats once up and down per turn, by whole pixels."""
     out = []
-    for pic in frames:
-        k = min(w * K / pic.width, h * K / pic.height)
-        if k >= 1 and len(frames) == 1:
-            k = int(k)  # whole factors keep the pixels square
-            pic = pic.resize((pic.width * k, pic.height * k), Image.NEAREST)
-        else:
-            pic = pic.resize((round(pic.width * k), round(pic.height * k)), Image.LANCZOS)
+    k = max(1, min((w * K) // frames[0].width, (h * K - 2 * FLOAT * K) // frames[0].height))
+    for i, pic in enumerate(frames):
+        pic = pic.resize((pic.width * k, pic.height * k), Image.NEAREST)
+        lift = round(FLOAT * math.sin(math.tau * i / len(frames))) * k if len(frames) > 1 else 0
         frame = img.copy()
-        frame.paste(pic, (x0 * K + (w * K - pic.width) // 2, y0 * K + (h * K - pic.height) // 2), pic)
+        frame.paste(pic, (x0 * K + (w * K - pic.width) // 2, y0 * K + (h * K - pic.height) // 2 - lift), pic)
         out.append(frame)
     return out
 
 
 def save(frames, path):
-    """One PNG, or an animated PNG (the headset turning, about 12 frames a second)."""
+    """One PNG, or an animated PNG (the headset turning once in about 4.3 s)."""
     if len(frames) == 1:
         frames[0].save(path, optimize=True)
         return
@@ -71,7 +73,8 @@ def save(frames, path):
         sample.paste(frames[i * len(frames) // 4], (0, frames[0].height * i))
     palette = sample.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
     frames = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=80, loop=0, optimize=True)
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=TURN_MS / len(frames), loop=0,
+                   optimize=True)
 
 
 K = 2  # supersampling: every logical pixel is K device pixels
