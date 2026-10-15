@@ -9,6 +9,7 @@ mod eqfile;
 mod frame;
 mod headtrack;
 mod hub;
+mod kitty;
 mod link;
 mod logs;
 mod mac;
@@ -16,6 +17,7 @@ mod model;
 mod rfcomm;
 mod signals;
 mod viz;
+mod zlib;
 
 use backend::{Backend, Events};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
