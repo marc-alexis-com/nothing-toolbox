@@ -30,7 +30,7 @@ diagnostic logs. No phone, no app, no account.
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
 | **Sound** | EQ presets, and an advanced EQ with an interactive editor in the terminal (you hear each change as you make it), band-by-band edits, or curves loaded from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
 | **Events** | live feed of what the headset pushes (battery, worn or not, noise mode, button…); turn the headset's button into a Linux button |
-| **Head tracking** | the headset's orientation sensor as a quaternion stream, or live in 3D: a low-poly model of the headset, in its own colour, drawn as a real picture in kitty (tmux included) and in text blocks anywhere else |
+| **Head tracking** | the headset's orientation sensor as a quaternion stream, or live in 3D: a low-poly model of the headset, in its own colour, drawn as a real picture in kitty (tmux included), or in text blocks in any terminal |
 | **Controls** | remap the button and the wheel without the phone app |
 | **Gestures** | nod to play/pause, shake to skip, through any media command (`playerctl` by default) |
 | **Logs** | list and download the headset's diagnostic logs, read-only |
@@ -60,8 +60,8 @@ diagnostic logs. No phone, no app, no account.
 </p>
 
 <p align="center">
-  <img src="docs/images/headtrack-blocks.png" alt="nothing headtrack --viz outside kitty: the headset drawn with half-block characters, and a panel with the angles and keys" width="85%">
-  <br><sub>Outside kitty (or with <code>--blocks</code>), the same view in 24-bit colour text blocks.</sub>
+  <img src="docs/images/headtrack-blocks.png" alt="nothing headtrack --viz --blocks: the same low-poly headset drawn with half-block characters, and a window with the angles and keys" width="85%">
+  <br><sub>Outside kitty (or with <code>--blocks</code>), the same headset in 24-bit colour text blocks.</sub>
 </p>
 
 <p align="center">
@@ -383,8 +383,8 @@ The source is small and dependency-light (`clap`, `clap_complete`, `libc`):
 | `src/hub.rs` | the channel owner: reconnects, subscribers, head-tracking reference count |
 | `src/backend.rs` | local socket protocol, daemon detection |
 | `src/headtrack.rs` | quaternion maths and the nod/shake detector |
-| `src/viz.rs` | `headtrack --viz`: the text-block view, and the kitty picture's window |
-| `src/model.rs` | the head-tracking frame, and the simple model the text-block view draws |
+| `src/viz.rs` | `headtrack --viz`: the picture as text blocks or in kitty, and its window |
+| `src/model.rs` | the head-tracking frame and the headset's two colours |
 | `src/lowpoly.rs` | the low-poly headset drawn in kitty, from the product's measurements |
 | `src/ps2.rs` | the software renderer: depth buffer, lighting, mirror floor, dithering |
 | `src/texture.rs` | the texture of the cups' outer face (`tools/bake-face.sh` makes it) |

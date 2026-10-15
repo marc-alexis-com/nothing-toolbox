@@ -5,7 +5,7 @@
 - **`headtrack --viz` in 3D, for real.** In kitty (also through tmux with
   `allow-passthrough on`), a low-poly Nothing Headphone (1) drawn as a picture by a small
   software renderer, PS2 style: aluminium cups, clear covers, cushions, straps, headband,
-  mirror floor. Elsewhere, or with `--blocks`, a shaded model in 24-bit text blocks.
+  mirror floor. Elsewhere, or with `--blocks`, the same headset in 24-bit text blocks.
 - The view draws the headset's own colour (white or black, read from the headset; `c` swaps
   it), starts seen from straight behind, and `r` brings the camera back there.
 - Head-tracking axes measured: +X is the wearer's right, +Y the face, Z up (looking down turns
