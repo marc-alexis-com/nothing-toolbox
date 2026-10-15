@@ -185,8 +185,8 @@ cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 | `E003` | noise control changed | as `401E`: `01 07 00` transparency, `01 01 00` high, sent when the mode is changed on the headset (not after `F00F`) | confirmed |
 | `E009` | working status changed | 3 bytes, meaning unknown | inferred |
 | `E00E` | connection changed | 8 bytes (address + state) | inferred |
-| `E014` | **magic button pressed** | 2 bytes; the app reads byte 0 as an action code | app |
-| `E015` | head tracking | quaternion, see 4.6 | confirmed |
+| `E014` | magic button pressed | 2 bytes; the app reads byte 0 as an action code. Not seen from a B170 yet: with the button bound to noise control (`16`), a press sends `E003` instead | app |
+| `E015` | head tracking | quaternion, see 4.7 | confirmed |
 | `E016` | Bluetooth / LE Audio status | 2 bytes | inferred |
 | `E017` | rewind / fast forward | `[type, down]`; probably only sent to a Nothing phone | inferred |
 | `E018` | Essential Space | probably only sent to a Nothing phone | inferred |
@@ -199,7 +199,7 @@ cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 | `FC03` file list | `7C03`: names separated by `;` — `Ecode.bin;normal.log` on the B170 | confirmed |
 | `FC21` log info | `7C21`: `[status, packet_size u32, file_size u32, crc32 u32, side]`, LE; status 1 = available. A unit with nothing buried answers status 2, 240-byte packets, size 0. | confirmed |
 | `FC22 <packet u16 LE>` log packet | `7C22`: `[index u32 LE, data]` | app |
-| `FC09` debug info | `7C09`: logging state, 3 bytes (`00 00 00` seen) | confirmed (raw) |
+| `FC09` debug info | `7C09`: 3 bytes, `00 00 00` seen. Meaning (logging on/off and level) **inferred** | confirmed (raw) |
 
 Other debug codes (`FC01` test mode, `FC07`, `FC08` log level, file transfer `FC04`–`FC06`)
 are not used by this tool.

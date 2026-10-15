@@ -29,7 +29,7 @@ diagnostic logs. No phone, no app, no account.
 | **Noise control** | high, mid, low, adaptive, off, transparency, and a toggle made for a keyboard shortcut |
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
 | **Sound** | EQ presets, and an advanced EQ you can edit band by band or load from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
-| **Events** | live feed of what the headset pushes: battery, noise mode, state, Audiodo, **magic button** (run any command on press) |
+| **Events** | live feed of what the headset pushes (noise mode, Audiodo, state, battery…), with a hook to run a command on a magic-button event |
 | **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
 | **Controls** | remap the button and the wheel without the phone app |
 | **Gestures** | nod to play/pause, shake to skip, through any media command (`playerctl` by default) |
@@ -160,13 +160,17 @@ it): from any noise-cancelling level it goes to transparency, from anything else
 last noise-cancelling level. Failures are appended to `$XDG_RUNTIME_DIR/nothing.log`, since a
 key binding throws stderr away.
 
-**Magic button.** The headset reports presses of its customisable button. Map them to anything:
+**React to the headset's events.** `nothing watch` prints what the headset pushes, and
+`--on-magic` runs a command on each magic-button event (`E014`):
 
 ```sh
 nothing watch --on-magic 'playerctl play-pause'
 ```
 
-The command runs through `sh -c`, with the raw event payload in `$NOTHING_PAYLOAD`.
+The command runs through `sh -c`, with the raw event payload in `$NOTHING_PAYLOAD`. Caveat: on
+the test unit, whose button is bound to noise control, pressing it produces a noise-control
+event, not `E014`; which binding (if any) makes the B170 send `E014` to a Linux client has not
+been established yet.
 
 **Battery in a status bar.** Waybar:
 
@@ -260,12 +264,18 @@ each fact marked as **confirmed** on the device, taken from the vendor app's beh
 | Nothing Headphone (1) | `B170` | `1.0.1.81` | tested, see below |
 | Anything else | | | untested; reports welcome, writes refused by default |
 
-On the B170, every read and every write listed under *Safety* was run with this tool and read
-back, the pushed noise-control event was observed when pressing the headset's button, and the
-gesture detector was checked against real head movements. Not yet exercised with this tool:
-`codec set` (the same frames were, by hand), the magic-button event (a button set to noise
-control reports a noise-control event instead), and `logs dump` with an actual log to download
-(the test unit had none).
+On the B170, with this tool:
+
+- every read, and every write listed under *Safety*, was run and read back (all six noise
+  modes, bass boost levels 1–5, every control binding the app offers, advanced EQ curves from
+  1 to 8 bands), then restored;
+- the noise-control and Audiodo events were observed, and the gesture detector was checked
+  against a labelled recording of real head movements;
+- the advanced EQ's overall gain matches the vendor app's own computation to the last digit.
+
+Not yet exercised with this tool: `codec set` (the same frames were, by hand), the
+magic-button event `E014`, the battery and state events (`E001`, `E002`), and `logs dump` with
+an actual log to download (the test unit had none).
 
 If you own another Nothing product and want to help, the output of `nothing status` and
 `nothing info` (remove the serial number and addresses) in an issue is a good start.
@@ -289,19 +299,23 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-The source is small and dependency-light (`clap`, `libc`):
+The source is small and dependency-light (`clap`, `clap_complete`, `libc`):
 
 | File | Role |
 |---|---|
 | `src/frame.rs` | frame encoding, CRC-16/MODBUS, stream reassembly |
 | `src/cmd.rs` | command codes and the safety policy |
 | `src/decode.rs` | payload decoders, tested against real captures |
+| `src/eqfile.rs` | advanced EQ: limits, the vendor app's total-gain computation, file formats |
+| `src/logs.rs` | diagnostic log decoders |
+| `src/mac.rs` | finding the connected headset |
 | `src/rfcomm.rs` | RFCOMM socket over libc |
 | `src/link.rs` | one connection: reader thread, request/response matching |
 | `src/hub.rs` | the channel owner: reconnects, subscribers, head-tracking reference count |
 | `src/backend.rs` | local socket protocol, daemon detection |
 | `src/headtrack.rs` | quaternion maths and the nod/shake detector |
 | `src/viz.rs` | terminal 3D view |
+| `src/signals.rs` | clean shutdown on Ctrl+C / SIGTERM |
 | `src/main.rs` | the command line |
 
 ## Acknowledgements

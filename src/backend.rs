@@ -6,9 +6,9 @@
 //! ```text
 //! -> PING                                   <- PONG <up|down> <mac|-> <model|->
 //! -> REQ <cmd> <payload|-> <timeout_ms> <flags|->
-//!                                           <- RSP <cmd> <fsn> <payload|->  |  ERR <message>
+//!                                           <- RSP <cmd> <fsn> <payload|-> <ctl>  |  ERR <message>
 //! -> SUB [headtrack]                        <- OK, then a stream of:
-//!                                              EVT <cmd> <fsn> <payload|->
+//!                                              EVT <cmd> <fsn> <payload|-> <ctl>
 //!                                              CON <mac> <model|->  |  DIS <reason>
 //! ```
 //! Numbers are hex, payloads are contiguous hex. Flags: `d` = dangerous, `m` = any model.
@@ -48,7 +48,7 @@ fn parse_payload(s: &str) -> Result<Vec<u8>, String> {
 }
 
 fn frame_line(f: &Frame) -> String {
-    format!("EVT {:04x} {:02x} {}", f.cmd, f.fsn, payload_hex(&f.payload))
+    format!("EVT {:04x} {:02x} {} {:04x}", f.cmd, f.fsn, payload_hex(&f.payload), f.ctl)
 }
 
 // --- Server -------------------------------------------------------------------------------
@@ -106,7 +106,14 @@ fn handle_client(hub: &Arc<Hub>, conn: UnixStream) -> std::io::Result<()> {
                     hub.request(cmd, &payload, timeout, opts)
                 })();
                 match reply {
-                    Ok(f) => writeln!(out, "RSP {:04x} {:02x} {}", f.cmd, f.fsn, payload_hex(&f.payload))?,
+                    Ok(f) => writeln!(
+                        out,
+                        "RSP {:04x} {:02x} {} {:04x}",
+                        f.cmd,
+                        f.fsn,
+                        payload_hex(&f.payload),
+                        f.ctl
+                    )?,
                     Err(e) => writeln!(out, "ERR {e}")?,
                 }
             }
@@ -197,10 +204,10 @@ impl DaemonClient {
             timeout.as_millis(),
             if flags.is_empty() { "-" } else { &flags }
         ))?;
-        let w: Vec<&str> = reply.splitn(4, ' ').collect();
+        let w: Vec<&str> = reply.split(' ').collect();
         match w.as_slice() {
-            ["RSP", c, fsn, p] => Ok(Frame {
-                ctl: frame::CTL_CLIENT,
+            ["RSP", c, fsn, p, rest @ ..] => Ok(Frame {
+                ctl: parse_ctl(rest),
                 cmd: u16::from_str_radix(c, 16).map_err(|e| e.to_string())?,
                 fsn: u8::from_str_radix(fsn, 16).map_err(|e| e.to_string())?,
                 payload: parse_payload(p)?,
@@ -233,11 +240,16 @@ impl DaemonClient {
     }
 }
 
+/// Optional trailing control word; owners older than 0.2 did not send it.
+fn parse_ctl(rest: &[&str]) -> u16 {
+    rest.first().and_then(|c| u16::from_str_radix(c, 16).ok()).unwrap_or(frame::CTL_CLIENT)
+}
+
 fn parse_event(line: &str) -> Option<Event> {
-    let w: Vec<&str> = line.splitn(4, ' ').collect();
+    let w: Vec<&str> = line.splitn(5, ' ').collect();
     match w.as_slice() {
-        ["EVT", c, fsn, p] => Some(Event::Frame(Frame {
-            ctl: frame::CTL_CLIENT,
+        ["EVT", c, fsn, p, rest @ ..] => Some(Event::Frame(Frame {
+            ctl: parse_ctl(rest),
             cmd: u16::from_str_radix(c, 16).ok()?,
             fsn: u8::from_str_radix(fsn, 16).ok()?,
             payload: parse_payload(p).ok()?,
@@ -346,6 +358,12 @@ mod tests {
             Some(Event::Frame(g)) => assert_eq!(g, f),
             _ => panic!("frame line not parsed"),
         }
+        let raw = Frame { ctl: 0x0300, ..f.clone() };
+        assert!(matches!(parse_event(&frame_line(&raw)), Some(Event::Frame(g)) if g.ctl == 0x0300));
+        // Lines from an older owner, without the control word.
+        assert!(
+            matches!(parse_event("EVT e003 00 010700"), Some(Event::Frame(g)) if g.ctl == frame::CTL_CLIENT)
+        );
         let empty = Frame { payload: vec![], ..f.clone() };
         match parse_event(&frame_line(&empty)) {
             Some(Event::Frame(g)) => assert!(g.payload.is_empty()),

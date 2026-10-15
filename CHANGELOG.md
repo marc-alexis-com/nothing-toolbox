@@ -7,6 +7,8 @@
   and the overall gain is computed exactly as the app computes it (including the formula of
   firmware older than 1.0.1.46); the previous curve is saved before every write.
 - `eq get` reports the advanced EQ when it is on (the preset byte does not change with it).
+- `raw` and the local socket now carry each frame's control word.
+- Docs: the magic-button hook is described as untested; source map completed.
 - Verified on a B170: all six noise modes, bass boost levels 1-5, and every control binding
   the app offers, each written, read back and restored.
 

@@ -1027,9 +1027,10 @@ fn raw(ctx: &Ctx, cmd_text: &str, payload: Option<&str>) -> Res<()> {
     let payload = payload.map(frame::parse_hex).transpose()?.unwrap_or_default();
     let f = ctx.backend.request(code, &payload, ctx.timeout, ctx.opts)?;
     println!(
-        "{:04X} fsn={} [{}]{}",
+        "{:04X} fsn={} ctl={:04X} [{}]{}",
         f.cmd,
         f.fsn,
+        f.ctl,
         frame::hex(&f.payload),
         cmd::name(code).map(|n| format!("  {n}")).unwrap_or_default()
     );
