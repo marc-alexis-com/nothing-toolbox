@@ -28,7 +28,7 @@ diagnostic logs. No phone, no app, no account.
 |---|---|
 | **Noise control** | high, mid, low, adaptive, off, transparency, and a toggle made for a keyboard shortcut |
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
-| **Sound** | EQ presets, custom and advanced curves (read), bass boost, spatial audio, low-latency mode |
+| **Sound** | EQ presets, and an advanced EQ you can edit band by band or load from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
 | **Events** | live feed of what the headset pushes: battery, noise mode, state, Audiodo, **magic button** (run any command on press) |
 | **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
 | **Controls** | remap the button and the wheel without the phone app |
@@ -94,6 +94,7 @@ nothing anc get | set <mode> | toggle
 nothing battery [--json]
 nothing info                         # model, firmware, color, serial number, paired devices
 nothing eq get | set <preset> | custom | advanced
+nothing eq load <file> | save [file] | band <Hz> <dB> [--q Q] | reset
 nothing bass get | on [LEVEL] | off
 nothing spatial get | set off|on|head-tracking
 nothing latency    get | on | off
@@ -177,6 +178,23 @@ The command runs through `sh -c`, with the raw event payload in `$NOTHING_PAYLOA
 }
 ```
 
+**Your own EQ curve.** The advanced EQ takes up to 8 peaking bands. Edit it band by band, or
+load a whole curve, for example an [AutoEQ](https://github.com/jaakkopasanen/AutoEq)
+`ParametricEQ.txt` (peaking filters only, at most 8):
+
+```sh
+nothing eq save ~/eq/flat.txt          # keep the current curve
+nothing eq band 60 +3                  # +3 dB around 60 Hz
+nothing eq load ParametricEQ.txt --dry-run
+nothing eq load ParametricEQ.txt
+nothing eq set balanced                # back to a preset (turns the advanced EQ off)
+```
+
+Before each write, the previous curve is saved to `~/.local/state/nothing/eq-previous.txt`;
+`nothing eq load ~/.local/state/nothing/eq-previous.txt` undoes the last change. Gains are
+rounded to the headset's 0.5 dB steps, and the overall gain is lowered automatically when the
+curve rises above +6 dB, as the vendor app does.
+
 **Remap the button.** The customisable button and the wheel accept the actions the vendor app
 offers for them; `nothing controls actions` lists them.
 
@@ -223,7 +241,7 @@ devices. `nothing` sorts every command code before anything leaves the computer:
 | Class | Examples | Policy |
 |---|---|---|
 | Reads | battery, state, EQ, logs list | always allowed |
-| Tested writes | noise mode, EQ preset, bass boost, spatial, latency, multipoint, wear detection, control bindings | allowed: each one was written, read back and reverted on a real B170 |
+| Tested writes | noise mode, EQ preset, advanced EQ curve, bass boost, spatial, latency, multipoint, wear detection, control bindings | allowed: each one was written, read back and reverted on a real B170 |
 | Risky | codec change (reboots), factory reset, unpairing, test mode, any untested code | needs `--dangerous` |
 | Firmware update | the whole OTA class | **never sent**, flashing is not implemented |
 

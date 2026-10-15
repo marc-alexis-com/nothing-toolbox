@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Advanced EQ editing**: `eq band <Hz> <dB>`, `eq load <file>` (native format or AutoEQ
+  `ParametricEQ.txt`, with `--dry-run`), `eq save`, `eq reset`. Limits and overall gain follow
+  the vendor app; the previous curve is saved before every write.
+- `eq get` reports the advanced EQ when it is on (the preset byte does not change with it).
+
 ## 0.1.0 — 2026-10-15
 
 First release. Tested on a Nothing Headphone (1), model B170, firmware 1.0.1.81.

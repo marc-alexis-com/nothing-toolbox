@@ -107,10 +107,10 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 
 | Setting | Read | Write | Values | Status |
 |---|---|---|---|---|
-| EQ preset | `C01F` → `[p]` | `F010 [p]` | `0` balanced, `1` voice, `2` more treble, `3` more bass, `5` custom; reads `0x64` while the advanced EQ is on | confirmed |
+| EQ preset | `C01F` → `[p]` | `F010 [p]` | `0` balanced, `1` voice, `2` more treble, `3` more bass, `5` custom. The byte keeps its value while the advanced EQ is on (the vendor app also understands `0x64` as "advanced", never seen from a B170) | confirmed |
 | Advanced EQ switch | `C04C` → `[s]` | `F04F [s]` | `1` on, `0` off. Writing advanced bands (`F050`) also turns it on. | confirmed |
 | Custom EQ (3 bands) | `C044` | `F041` | `[n, total f32, (type, gain f32, freq f32, q f32) × n]`; bytes past the bands in the answer are stale memory | confirmed |
-| Advanced EQ (8 bands) | `C04D [profile]` | `F050` | `[profile, n, total f32, (type, gain f32, freq f32, q f32) × n]` | confirmed |
+| Advanced EQ (up to 8 bands) | `C04D [profile]` | `F050` | `[profile, n, total f32, (type, gain f32, freq f32, q f32) × n]`; profile `0`, type `1` (peaking). The headset stores any band count from 1 to 8 and the total gain as written. | confirmed |
 | Bass boost | `C04E` → `[on, level×2]` | `F051 [on, level×2]` | the device stores both bytes as written | confirmed |
 | Spatial audio | `C04F` → `[mode, head]` | `F052 [mode, head]` | `00 00` off, `01 00` on, `01 01` head tracking | confirmed |
 | Low latency | `C041` → `[s]` | `F040 [s]` | `1` on, `2` off | confirmed |
@@ -118,6 +118,12 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 | Extra features | `C00E` → `[n, (id, value) × n]` | `F004 [01, id, value]` | id 1 = wear detection; other ids unknown | confirmed |
 | Audiodo profile | `C05A` → `[s]` | `F05C [s]` | `1` on, `0` off; the device then pushes `E019 [profile, sdk_link]` | confirmed |
 | Codec | `C029` → `[c]` | `F01C [c]` | `0` AAC, `2` LDAC (`1` LHDC, not on the B170). **Writing reboots the headset** (~6 s). | confirmed |
+
+Advanced EQ limits applied by the vendor app (**app**): at most 8 bands, gain −6..+6 dB in
+0.5 dB steps, 20–20 000 Hz, Q 0.1–10. Its total gain, for firmware 1.0.1.46 and later, is
+`min(0, 6 − peak)` where `peak` is the highest point (floored at 0 dB) of the combined response:
+negative headroom only once the curve rises above +6 dB. A 3-band curve with a −3.2 dB total
+gain was written and read back unchanged. **confirmed**
 
 ### 4.6 Controls (button and wheel)
 

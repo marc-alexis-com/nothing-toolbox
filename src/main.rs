@@ -4,6 +4,7 @@
 mod backend;
 mod cmd;
 mod decode;
+mod eqfile;
 mod frame;
 mod headtrack;
 mod hub;
@@ -223,7 +224,7 @@ impl From<AncArg> for AncMode {
 
 #[derive(Subcommand)]
 enum EqAction {
-    /// Print the active preset
+    /// Print the active preset, or `advanced` when the advanced EQ is on
     Get,
     /// Select a preset
     Set {
@@ -232,8 +233,39 @@ enum EqAction {
     },
     /// Print the custom 3-band curve
     Custom,
-    /// Print the advanced 8-band curve
+    /// Print the advanced curve (up to 8 bands)
     Advanced,
+    /// Load an advanced curve from a file (native or AutoEQ ParametricEQ format) and turn it on
+    #[command(after_long_help = "File formats:\n  \
+        native (written by `nothing eq save`):   55  +3.0  1.00     (Hz, dB, Q per line)\n  \
+        AutoEQ ParametricEQ.txt:                 Filter 1: ON PK Fc 105 Hz Gain -2.3 dB Q 0.70\n\n\
+        Limits: 8 bands, -6..+6 dB in 0.5 dB steps, 20-20000 Hz, Q 0.1-10. Only peaking (PK)\n\
+        filters. The previous curve is saved to $XDG_STATE_HOME/nothing/eq-previous.txt first.")]
+    Load {
+        /// Curve file
+        file: std::path::PathBuf,
+        /// Show what would be sent without sending it
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Save the advanced curve to a file (or print it)
+    Save {
+        /// Destination file; standard output when omitted
+        file: Option<std::path::PathBuf>,
+    },
+    /// Set one band of the advanced curve, adding it if no band is near that frequency
+    Band {
+        /// Centre frequency in Hz (20-20000)
+        freq: f32,
+        /// Gain in dB (-6..+6, 0.5 dB steps)
+        #[arg(allow_negative_numbers = true)]
+        gain: f32,
+        /// Width (0.1-10); kept from the existing band, 1.0 for a new one
+        #[arg(long)]
+        q: Option<f32>,
+    },
+    /// Restore the vendor app's factory curve (three flat bands) and turn it on
+    Reset,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -699,7 +731,15 @@ fn info(ctx: &Ctx) -> Res<()> {
 
 fn eq(ctx: &Ctx, action: EqAction) -> Res<()> {
     match action {
-        EqAction::Get => println!("{}", decode::eq_preset(&ctx.get(cmd::GET_EQ_MODE)?)),
+        EqAction::Get => {
+            // The preset byte keeps its value while the advanced EQ is on: ask the switch too.
+            let preset = decode::eq_preset(&ctx.get(cmd::GET_EQ_MODE)?);
+            if decode::switch(&ctx.get(cmd::GET_ADVANCED_EQ_MODE)?) == "on" {
+                println!("advanced (preset underneath: {preset})");
+            } else {
+                println!("{preset}");
+            }
+        }
         EqAction::Set { preset } => {
             if let EqPreset::Advanced = preset {
                 ctx.request(cmd::SET_ADVANCED_EQ_MODE, &[1])?;
@@ -717,12 +757,90 @@ fn eq(ctx: &Ctx, action: EqAction) -> Res<()> {
             let eq = decode::custom_eq(&ctx.get(cmd::GET_CUSTOM_EQ)?).ok_or("malformed custom EQ")?;
             println!("{eq}");
         }
+        EqAction::Load { file, dry_run } => {
+            let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            write_curve(ctx, eqfile::parse(&text)?, dry_run)?;
+        }
+        EqAction::Save { file } => {
+            let eq = read_curve(ctx)?;
+            match file {
+                Some(path) => std::fs::write(&path, eqfile::format(&eq))
+                    .map_err(|e| format!("{}: {e}", path.display()))?,
+                None => print!("{}", eqfile::format(&eq)),
+            }
+        }
+        EqAction::Band { freq, gain, q } => {
+            let mut bands = read_curve(ctx)?.bands;
+            // Same band if within a sixth of an octave.
+            match bands.iter_mut().find(|b| (b.freq / freq).log2().abs() < 1.0 / 6.0) {
+                Some(b) => {
+                    b.freq = freq;
+                    b.gain = gain;
+                    if let Some(q) = q {
+                        b.q = q;
+                    }
+                }
+                None => bands.push(decode::EqBand {
+                    filter: eqfile::FILTER_PEAK,
+                    gain,
+                    freq,
+                    q: q.unwrap_or(1.0),
+                }),
+            }
+            write_curve(ctx, bands, false)?;
+        }
+        EqAction::Reset => write_curve(ctx, eqfile::factory(), false)?,
         EqAction::Advanced => {
             let eq = decode::advanced_eq(&ctx.request(cmd::GET_ADVANCED_EQ, &[0])?)
                 .ok_or("malformed advanced EQ")?;
             println!("{eq}");
         }
     }
+    Ok(())
+}
+
+fn read_curve(ctx: &Ctx) -> Res<decode::Eq> {
+    decode::advanced_eq(&ctx.request(cmd::GET_ADVANCED_EQ, &[0])?)
+        .ok_or_else(|| "malformed advanced EQ answer".into())
+}
+
+fn state_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/state")))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("nothing")
+}
+
+/// Validates and writes an advanced curve, after saving the current one so it can be restored.
+/// Writing the bands also turns the advanced EQ on (observed on a B170).
+fn write_curve(ctx: &Ctx, bands: Vec<decode::EqBand>, dry_run: bool) -> Res<()> {
+    let (eq, notes) = eqfile::curve(bands)?;
+    for n in &notes {
+        eprintln!("note: {n}");
+    }
+    if dry_run {
+        println!("{eq}");
+        println!("payload: [{}]", frame::hex(&eqfile::payload(&eq)));
+        return Ok(());
+    }
+    let previous = read_curve(ctx)?;
+    let dir = state_dir();
+    let backup = dir.join("eq-previous.txt");
+    std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(&backup, eqfile::format(&previous)))
+        .map_err(|e| format!("cannot save the current curve to {}: {e}", backup.display()))?;
+    ctx.request(cmd::SET_ADVANCED_EQ, &eqfile::payload(&eq))?;
+    let now = read_curve(ctx)?;
+    println!("{now}");
+    if now.bands != eq.bands {
+        return Err("the headset reports a different curve than the one sent".into());
+    }
+    eprintln!(
+        "advanced EQ: {}; previous curve saved to {}",
+        decode::switch(&ctx.get(cmd::GET_ADVANCED_EQ_MODE)?),
+        backup.display()
+    );
     Ok(())
 }
 
