@@ -4,7 +4,10 @@
 
 Needs Pillow. Fonts: Iosevka (https://github.com/be5invis/Iosevka) for all text and the
 terminal screenshots, Doto (https://github.com/oliverlalan/Doto, SIL OFL) for the title.
-Each NAME=FILE.ansi pair renders FILE.ansi to OUT_DIR/NAME.png. The inputs are real terminal
+Each NAME=FILE.ansi pair renders FILE.ansi to OUT_DIR/NAME.png; NAME=DIR renders the
+DIR/frame-*.ansi files, in order, to the animation OUT_DIR/NAME.gif (about 9.5 frames a second,
+the head-tracking rate). With HEADSET=picture.ppm in the environment, the banner and the
+architecture diagram show that picture of the 3D headset instead of the LED-matrix drawing. The inputs are real terminal
 output captured with `tmux capture-pane -e -p`: one-shot commands preceded by their own prompt
 line, and single frames of `nothing eq edit` and `nothing headtrack --viz`.
 
@@ -13,6 +16,7 @@ dot-matrix only for display, and a single red LED as the one accent. Terminal sh
 the Ayu Dark palette.
 """
 import math
+import os
 import re
 import sys
 
@@ -20,6 +24,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 OUT, IOS_R, IOS_B, DOTO = sys.argv[1:5]
 SHOTS = [arg.split("=", 1) for arg in sys.argv[5:]]
+HEADSET = os.environ.get("HEADSET")
+
+
+def headset(img, x0, y0, w, h):
+    """Pastes the 3D headset picture, centred in the w x h box at (x0, y0): enlarged by a whole
+    factor (crisp pixels), or reduced to fit."""
+    pic = Image.open(HEADSET).convert("RGB")
+    k = min(w * K / pic.width, h * K / pic.height)
+    if k >= 1:
+        k = int(k)  # whole factors keep the pixels square
+        pic = pic.resize((pic.width * k, pic.height * k), Image.NEAREST)
+    else:
+        pic = pic.resize((round(pic.width * k), round(pic.height * k)), Image.LANCZOS)
+    img.paste(pic, (x0 * K + (w * K - pic.width) // 2, y0 * K + (h * K - pic.height) // 2))
 K = 2  # supersampling: every logical pixel is K device pixels
 
 # --- Shared design tokens (monochrome, one red) -----------------------------------------
@@ -130,7 +148,10 @@ def hero(theme):
     # LED matrix with the headphone
     pitch, cols, rows = 10, 38, 32
     gx, gy = 40, 40
-    dot_matrix(img, gx, gy, cols, rows, pitch, theme, red=True)
+    if HEADSET:
+        headset(img, gx, gy, cols * pitch, rows * pitch)
+    else:
+        dot_matrix(img, gx, gy, cols, rows, pitch, theme, red=True)
 
     # right column
     x = 470
@@ -214,7 +235,10 @@ def architecture(theme):
 
     # 03 headset, with a small LED matrix of the headphone
     card(d, 690, 66, 230, 212, t)
-    dot_matrix(img, 718, 74, 38, 32, 4.6, theme)
+    if HEADSET:
+        headset(img, 718, 74, round(38 * 4.6), round(32 * 4.6))
+    else:
+        dot_matrix(img, 718, 74, 38, 32, 4.6, theme)
     label(706, 230, "RFCOMM CHANNEL 15")
     # the single connection marker: one red dot
     rx, ry = 706, 252
@@ -310,6 +334,21 @@ def braille(d, x, y, w, h, bits, color):
 
 
 def terminal(src, name, cols=None):
+    terminal_image(src, cols).save(f"{OUT}/{name}.png", optimize=True)
+
+
+def animation(directory, name):
+    files = sorted(f for f in os.listdir(directory) if f.startswith("frame-") and f.endswith(".ansi"))
+    frames = []
+    for f in files:
+        img = terminal_image(os.path.join(directory, f))
+        img = img.resize((img.width // K, img.height // K), Image.LANCZOS)
+        frames.append(img.quantize(colors=128, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
+    frames[0].save(f"{OUT}/{name}.gif", save_all=True, append_images=frames[1:], duration=105, loop=0,
+                   optimize=True, disposal=1)
+
+
+def terminal_image(src, cols=None):
     text = open(src, encoding="utf-8").read()
     lines = parse_ansi(text)
     size = 15
@@ -341,12 +380,15 @@ def terminal(src, name, cols=None):
                 braille(d, pad_x + col * cell, pad_y + row * lh, cell, lh, ord(ch) - 0x2800, color)
                 continue
             d.text(((pad_x + col * cell) * K, (pad_y + row * lh) * K), ch, font=bld if bold else reg, fill=color)
-    img.save(f"{OUT}/{name}.png", optimize=True)
+    return img
 
 
 for th in THEMES:
     hero(th)
     architecture(th)
 for name, src in SHOTS:
-    terminal(src, name)
+    if os.path.isdir(src):
+        animation(src, name)
+    else:
+        terminal(src, name)
 print("ok")

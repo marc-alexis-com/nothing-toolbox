@@ -153,9 +153,6 @@ enum Command {
         /// colour (white/black), q quits
         #[arg(long)]
         viz: bool,
-        /// With --viz: draw with text blocks, even where kitty pictures would work
-        #[arg(long, requires = "viz")]
-        blocks: bool,
     },
     /// Media control by head gestures: nod = play/pause, shake = next track
     Gestures(GestureArgs),
@@ -561,9 +558,7 @@ fn run(cli: Cli) -> Res<()> {
         Command::Watch { on_magic, headtrack, raw } => {
             long_running(cli.mac, opts, timeout, |ctx| watch(ctx, on_magic.as_deref(), headtrack, raw))
         }
-        Command::Headtrack { viz, blocks } => {
-            long_running(cli.mac, opts, timeout, |ctx| headtrack_cmd(ctx, viz, blocks))
-        }
+        Command::Headtrack { viz } => long_running(cli.mac, opts, timeout, |ctx| headtrack_cmd(ctx, viz)),
         Command::Gestures(args) => long_running(cli.mac, opts, timeout, |ctx| gestures(ctx, &args)),
     }
 }
@@ -1371,7 +1366,7 @@ fn watch(ctx: &Ctx, on_magic: Option<&str>, headtrack: bool, raw: bool) -> Res<(
 
 // --- Head tracking ------------------------------------------------------------------------
 
-fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
+fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
     let events = ctx.backend.subscribe(true)?;
     if !viz {
         println!("# t_s yaw pitch roll x y z w");
@@ -1401,8 +1396,9 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
         Some(0x01) => model::Edition::Black,
         _ => model::Edition::White,
     };
-    // A real picture where kitty graphics work, else text blocks.
-    let mut pictures = if blocks { None } else { kitty::detect().map(viz::KittyView::new) };
+    // A real picture in kitty; a terminal without kitty graphics gets the same picture in
+    // text blocks.
+    let mut pictures = kitty::detect().map(viz::KittyView::new);
     let term = viz::RawTerminal::enter();
     let (mut az, mut el) = (viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
     let mut q = [0.0, 0.0, 0.0, 1.0];
