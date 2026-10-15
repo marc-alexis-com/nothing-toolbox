@@ -76,8 +76,7 @@ pub struct Palette {
     pub slider: Material,
     pub pad: Material,
     pub strap: Material,
-    /// The outer face's cap, and what stands on it: all of them take the face texture.
-    pub face: Material,
+    /// What stands on the outer face, under the cover: it takes the face texture.
     pub plate: Material,
     pub frame: Material,
     pub grille: Material,
@@ -100,7 +99,6 @@ pub fn palette(e: Edition) -> Palette {
             slider: plain(hex(0xd2d4d6), 0.30, 14.0, 0.0),
             pad: plain(hex(0x262728), 0.12, 8.0, 0.0),
             strap: plain(hex(0x26282a), 0.6, 30.0, 0.55),
-            face: face(false, plain(hex(0xc9ccd0), 0.10, 6.0, 0.0)),
             plate: face(false, plain(hex(0xd3d5d7), 0.15, 10.0, 0.0)),
             frame: face(false, plain(hex(0xdddfe0), 0.2, 12.0, 0.0)),
             grille: face(false, plain(hex(0x8e9296), 0.05, 4.0, 0.0)),
@@ -117,7 +115,6 @@ pub fn palette(e: Edition) -> Palette {
             slider: plain(hex(0x393b3e), 0.30, 14.0, 0.0),
             pad: plain(hex(0x1e1f20), 0.12, 8.0, 0.0),
             strap: plain(hex(0x1c1d1f), 0.6, 30.0, 0.55),
-            face: face(true, plain(hex(0x34373c), 0.10, 6.0, 0.0)),
             plate: face(true, plain(hex(0x2c2f33), 0.15, 10.0, 0.0)),
             frame: face(true, plain(hex(0x34373b), 0.2, 12.0, 0.0)),
             grille: face(true, plain(hex(0x1f2022), 0.05, 4.0, 0.0)),
@@ -173,11 +170,10 @@ fn rrect(w: f64, h: f64, r: f64, n: usize) -> Vec<(f64, f64)> {
     out
 }
 
-/// A superellipse `w` x `h` (a squarish oval, as the cushion's outline), `n` points,
+/// A superellipse `w` x `h` (`power` 2 is an ellipse, higher is squarer), `n` points,
 /// counter-clockwise from the right side.
-fn oval(w: f64, h: f64, n: usize) -> Vec<(f64, f64)> {
-    const POWER: f64 = 2.6;
-    let pw = |v: f64| v.signum() * v.abs().powf(2.0 / POWER);
+fn oval(w: f64, h: f64, power: f64, n: usize) -> Vec<(f64, f64)> {
+    let pw = |v: f64| v.signum() * v.abs().powf(2.0 / power);
     (0..n)
         .map(|i| {
             let t = std::f64::consts::TAU * i as f64 / n as f64;
@@ -336,11 +332,11 @@ impl Builder {
     }
 }
 
-/// The cushion: a squarish oval about the shell's size, a wall 18.5 mm wide round an opening
-/// of 39 x 55 mm (measured on a photo of the inside).
+/// The cushion: a squarish oval about the shell's size, a wall 19 mm wide round an opening
+/// of about 33 x 54 mm (measured on a photo of the inside).
 const CUSH_W: f64 = 76.0;
 const CUSH_H: f64 = 92.0;
-const CUSH_WALL: f64 = 18.5;
+const CUSH_WALL: f64 = 19.0;
 
 /// The cup outline (aluminium shell), in millimetres.
 const CUP_W: f64 = 78.0;
@@ -380,13 +376,20 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
     // Cushion: a fat ring of leather, its outline a squarish oval, rolling over at the tip
     // into a deep opening that ends in a dark mesh (the profile is the tube's section).
     let tip = CUSHION_IN;
-    let outline = |e: f64| oval(CUSH_W - 2.0 * e, CUSH_H - 2.0 * e, 24);
+    // Squarish at the rim, a tighter true oval towards the speaker: the opening closes in
+    // faster across than along.
+    let outline = |e: f64| {
+        let t = (e / CUSH_WALL).clamp(0.0, 1.0);
+        oval(CUSH_W - 2.0 * e * (1.0 + 0.35 * t), CUSH_H - 2.0 * e, 2.6 - 0.6 * t, 24)
+    };
     // The section: the outer wall, then a half circle of radius `r` over the tip (so that
     // the cushion is round against the ear), then down the inner wall into the opening.
     let r = CUSH_WALL / 2.0;
-    let mut rings = vec![(SHELL_IN, 1.0), (tip + r + 5.0, 0.0), (tip + r + 2.0, 0.2)];
-    for i in 0..=8 {
-        let t = std::f64::consts::PI * i as f64 / 8.0;
+    // Where it meets the shell the cushion is pinched in and swells out to its full size,
+    // instead of running straight into it.
+    let mut rings = vec![(SHELL_IN, 3.2), (tip + 16.0, 1.4), (tip + 13.5, 0.0), (tip + r + 2.0, 0.2)];
+    for i in 0..=6 {
+        let t = std::f64::consts::PI * i as f64 / 6.0;
         rings.push((tip + r * (1.0 - t.sin()), r * (1.0 - t.cos())));
     }
     rings.extend([(tip + r + 2.0, CUSH_WALL), (tip + r + 4.0, CUSH_WALL)]);
@@ -404,7 +407,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         true,
         c.shell,
     );
-    b.cap(&f, &rrect(CUP_W - 4.0, CUP_H - 4.0, CUP_R - 2.0, n), SHELL_OUT, 1.0, faced(c.face));
+    b.cap(&f, &rrect(CUP_W - 4.0, CUP_H - 4.0, CUP_R - 2.0, n), SHELL_OUT, 1.0, c.shell);
 
     // Under the cover: the plate, the raised frame, the two grilles.
     let cf = Frame { o: [0.0, 0.0, COVER_Z], ..f };
@@ -641,7 +644,7 @@ mod tests {
             tris.iter().filter(move |t| t.mat == m).flat_map(|t| t.v).map(|v| v[0].signum() * RIGHT)
         };
         assert!(side(c.paddle).all(|s| s > 0.0));
-        let face = |left: bool| Material { pattern: Pattern::Face { black: true, left }, ..c.face };
+        let face = |left: bool| Material { pattern: Pattern::Face { black: true, left }, ..c.plate };
         assert!(side(face(false)).all(|s| s > 0.0) && side(face(true)).all(|s| s < 0.0));
         assert!(side(c.control).all(|s| s > 0.0));
         // Normals have unit length.
