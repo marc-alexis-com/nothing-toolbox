@@ -7,7 +7,6 @@
 //!   the total gain being computed here as the vendor app does.
 
 use crate::decode::{Eq, EqBand};
-use std::f64::consts::PI;
 
 /// Limits enforced by the vendor app's advanced EQ page (B170).
 pub const MAX_BANDS: usize = 8;
@@ -59,36 +58,123 @@ pub fn validate(bands: &mut [EqBand]) -> Result<Vec<String>, String> {
     Ok(notes)
 }
 
-/// Gain in dB of an RBJ peaking filter at frequency `f`, for a 48 kHz sample rate.
-fn peak_db(band: &EqBand, f: f64) -> f64 {
-    let fs = 48_000.0;
-    let a = 10f64.powf(band.gain as f64 / 40.0);
-    let w0 = 2.0 * PI * band.freq as f64 / fs;
-    let alpha = w0.sin() / (2.0 * band.q as f64);
-    let (b0, b1, b2) = (1.0 + alpha * a, -2.0 * w0.cos(), 1.0 - alpha * a);
-    let (a0, a1, a2) = (1.0 + alpha / a, -2.0 * w0.cos(), 1.0 - alpha / a);
-    let w = 2.0 * PI * f / fs;
-    // |H(e^jw)|^2 for a biquad, from the real and imaginary parts.
-    let (c1, s1, c2, s2) = (w.cos(), w.sin(), (2.0 * w).cos(), (2.0 * w).sin());
-    let num = (b0 + b1 * c1 + b2 * c2).powi(2) + (b1 * s1 + b2 * s2).powi(2);
-    let den = (a0 + a1 * c1 + a2 * c2).powi(2) + (a1 * s1 + a2 * s2).powi(2);
-    10.0 * (num / den).log10()
+/// Dart's `pow`, which short-cuts a few exponents (bit-exactness with the vendor app).
+fn dart_pow(b: f64, e: f64) -> f64 {
+    match e {
+        0.0 => 1.0,
+        1.0 => b,
+        2.0 => b * b,
+        3.0 => b * b * b,
+        0.5 if b != f64::NEG_INFINITY => {
+            if b == 0.0 {
+                0.0
+            } else {
+                b.sqrt()
+            }
+        }
+        _ => b.powf(e),
+    }
 }
 
-/// Highest point of the combined response, floored at 0 dB (sampled 20 Hz - 20 kHz).
-/// The vendor app draws the curve with its own algorithm; this RBJ biquad model is an
-/// approximation of it, close enough to decide when headroom is needed.
+/// Dart's `round`: halves away from zero.
+fn dart_round(x: f64) -> f64 {
+    x.round()
+}
+
+type Complex = (f64, f64);
+
+fn cmul(a: Complex, b: Complex) -> Complex {
+    (a.0 * b.0 - a.1 * b.1, a.1 * b.0 + a.0 * b.1)
+}
+
+const SAMPLE_RATE: f64 = 44_100.0;
+const TWO_PI: f64 = std::f64::consts::TAU;
+
+/// RBJ peaking biquad `(b0, b1, b2, a0, a1, a2)`, not normalised, as the app builds it.
+fn coefficients(fc: f64, gain: f64, q: f64) -> [f64; 6] {
+    let w0 = fc * TWO_PI / SAMPLE_RATE;
+    let a = dart_pow(10.0, gain / 40.0);
+    let (s, c) = (w0.sin(), w0.cos());
+    let alpha = s / (q * 2.0);
+    let (t, u) = (alpha * a, alpha / a);
+    [t + 1.0, c * -2.0, 1.0 - t, u + 1.0, c * -2.0, 1.0 - u]
+}
+
+fn response(cf: &[f64; 6], w: f64) -> Complex {
+    let [b0, b1, b2, a0, a1, a2] = *cf;
+    let z = (w.cos(), -w.sin());
+    let zz = cmul(z, z);
+    let n = (zz.0 * b2 + z.0 * b1 + b0, zz.1 * b2 + z.1 * b1);
+    let d = (zz.0 * a2 + z.0 * a1 + a0, zz.1 * a2 + z.1 * a1);
+    let den = d.0 * d.0 + d.1 * d.1;
+    ((n.0 * d.0 + n.1 * d.1) / den, (n.1 * d.0 - n.0 * d.1) / den)
+}
+
+/// Highest point of the combined response, floored at 0 dB, computed exactly as the vendor
+/// app does (`EQAlgorithm.getCoordinate`): frequencies and gains rounded to whole numbers,
+/// RBJ peaking filters at 44.1 kHz cascaded as complex products, evaluated on a 300-point
+/// log grid from 20 Hz (0.01 decade steps) whose first N points are replaced by the N band
+/// centres.
 pub fn response_peak(bands: &[EqBand]) -> f64 {
-    (0..=400)
-        .map(|i| 20.0 * 1000f64.powf(i as f64 / 400.0))
-        .map(|f| bands.iter().map(|b| peak_db(b, f)).sum::<f64>())
-        .fold(0.0, f64::max)
+    if bands.is_empty() {
+        return 0.0;
+    }
+    let params: Vec<(f64, f64, f64)> =
+        bands.iter().map(|b| (dart_round(b.freq as f64), dart_round(b.gain as f64), b.q as f64)).collect();
+    let n = params.len();
+    let ln10 = std::f64::consts::LN_10;
+    let step = (20_000f64.ln() / ln10 - 20f64.ln() / ln10) / 300.0;
+    let ratio = dart_pow(10.0, step);
+    let mut freqs = vec![0.0f64; n + 300];
+    for (i, p) in params.iter().enumerate() {
+        freqs[i] = p.0;
+    }
+    for (i, f) in freqs.iter_mut().enumerate().take(300).skip(n) {
+        *f = dart_pow(ratio, i as f64) * 20.0;
+    }
+    freqs.sort_by(f64::total_cmp);
+    let cfs: Vec<[f64; 6]> = params.iter().map(|&(f, g, q)| coefficients(f, g, q)).collect();
+    let mut peak = 0.0f64;
+    for f in freqs {
+        let w = f * TWO_PI / SAMPLE_RATE;
+        let h = cfs[1..].iter().fold(response(&cfs[0], w), |h, cf| cmul(h, response(cf, w)));
+        let mut mag = (h.0 * h.0 + h.1 * h.1).sqrt();
+        if mag.is_nan() {
+            continue;
+        }
+        if mag <= 1e-12 {
+            mag = 1e-12;
+        }
+        let db = (mag.ln() / ln10) * 20.0;
+        if db > peak {
+            peak = db;
+        }
+    }
+    peak
 }
 
-/// Total gain the vendor app sends with a curve, for firmware 1.0.1.46 and later:
-/// `min(0, 6 - peak)`, i.e. headroom only once the curve rises above +6 dB.
-pub fn total_gain(bands: &[EqBand]) -> f32 {
-    (6.0 - response_peak(bands)).min(0.0) as f32
+/// Firmware from which the vendor app switches to the headroom formula below.
+const HEADROOM_FIRMWARE: [u32; 4] = [1, 0, 1, 46];
+
+/// True when `version` ("1.0.1.81") is at least 1.0.1.46. The app compares the third and
+/// fourth components numerically; an unreadable version counts as old, as in the app.
+fn uses_headroom_formula(version: Option<&str>) -> bool {
+    let Some(v) = version else { return false };
+    let parts: Vec<u32> =
+        v.split('-').next().unwrap_or("").split('.').map(|p| p.parse().unwrap_or(0)).collect();
+    parts.len() >= 4 && [parts[2], parts[3]] >= [HEADROOM_FIRMWARE[2], HEADROOM_FIRMWARE[3]]
+}
+
+/// Total gain the vendor app sends with a curve. Firmware 1.0.1.46 and later:
+/// `min(0, 6 - peak)`, headroom only once the curve rises above +6 dB. Older firmware (or an
+/// unknown version): `-(trunc(peak) + 1)`, always at least 1 dB down.
+pub fn total_gain(bands: &[EqBand], firmware: Option<&str>) -> f32 {
+    let peak = response_peak(bands);
+    if uses_headroom_formula(firmware) {
+        (6.0 - peak).min(0.0) as f32
+    } else {
+        -(peak.max(0.0).trunc() + 1.0) as f32
+    }
 }
 
 /// 0xF050 payload: `[profile 0, n, total f32, (type, gain f32, freq f32, q f32) × n]`.
@@ -104,10 +190,10 @@ pub fn payload(eq: &Eq) -> Vec<u8> {
     out
 }
 
-/// Builds the curve to send: validated bands and the app's total gain.
-pub fn curve(mut bands: Vec<EqBand>) -> Result<(Eq, Vec<String>), String> {
+/// Builds the curve to send: validated bands and the app's total gain for that firmware.
+pub fn curve(mut bands: Vec<EqBand>, firmware: Option<&str>) -> Result<(Eq, Vec<String>), String> {
     let notes = validate(&mut bands)?;
-    let total_gain = total_gain(&bands);
+    let total_gain = total_gain(&bands, firmware);
     Ok((Eq { profile: Some(0), total_gain, bands }, notes))
 }
 
@@ -192,7 +278,7 @@ mod tests {
     #[test]
     fn factory_curve_matches_the_app() {
         // 45 bytes, as built from the vendor app's code for firmware >= 1.0.1.46.
-        let (eq, _) = curve(factory()).unwrap();
+        let (eq, _) = curve(factory(), Some("1.0.1.81")).unwrap();
         let expected = parse_hex(
             "00 03 00000000 01 00000000 00004842 0000803f 01 00000000 00007a43 0000803f \
              01 00000000 00007a45 0000803f",
@@ -202,12 +288,36 @@ mod tests {
     }
 
     #[test]
+    fn peak_matches_the_vendor_app() {
+        // Reference values computed by a straight transcription of the app's algorithm.
+        let band = |freq, gain, q| EqBand { filter: 1, freq, gain, q };
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(close(response_peak(&[band(100.0, 6.0, 1.0)]), 5.999999999999972));
+        // Q is a float32 on the wire: 0.7 becomes 0.699999988..., hence ...239 and not the
+        // ...215 the same transcription gives with Q = 0.7 exactly.
+        let three = [band(100.0, 5.0, 0.7), band(150.0, 5.0, 0.7), band(3000.0, -2.5, 2.0)];
+        assert!(close(response_peak(&three), 9.21025523982672), "{}", response_peak(&three));
+        assert!(close(response_peak(&[band(55.0, 3.0, 1.0)]), 2.999999999999651));
+        // The app rounds gains to whole dB for the curve: +2.4 -> 2, +2.5 -> 3, -2.5 -> 0 peak.
+        assert!(close(response_peak(&[band(1000.0, 2.4, 1.0)]), 2.0));
+        assert!(close(response_peak(&[band(1000.0, 2.5, 1.0)]), 3.0));
+        assert!(response_peak(&[band(1000.0, -2.5, 1.0)]) < 1e-6);
+        assert_eq!(response_peak(&[]), 0.0);
+    }
+
+    #[test]
     fn total_gain_only_when_the_curve_exceeds_six_db() {
         let band = |freq, gain| EqBand { filter: 1, freq, gain, q: 1.0 };
-        assert_eq!(total_gain(&[band(100.0, 6.0)]), 0.0);
-        let g = total_gain(&[band(100.0, 6.0), band(150.0, 6.0)]);
-        assert!(g < -3.0 && g > -6.5, "{g}");
-        assert!((response_peak(&[band(1000.0, 4.0)]) - 4.0).abs() < 0.05);
+        let fw = Some("1.0.1.81");
+        assert_eq!(total_gain(&[band(100.0, 6.0)], fw), 0.0);
+        assert!((total_gain(&[band(100.0, 5.0), band(150.0, 5.0)], fw) as f64) < -2.0);
+        // Older firmware: always at least 1 dB down, -(trunc(peak) + 1).
+        assert_eq!(total_gain(&[band(100.0, 0.0)], Some("1.0.1.45")), -1.0);
+        assert_eq!(total_gain(&[band(100.0, 3.0)], Some("1.0.1.45")), -3.0);
+        assert_eq!(total_gain(&[band(100.0, 3.0)], None), -3.0);
+        assert!(uses_headroom_formula(Some("1.0.1.46")));
+        assert!(uses_headroom_formula(Some("2.1.1.100-beta")));
+        assert!(!uses_headroom_formula(Some("1.0.0.99")));
     }
 
     #[test]
@@ -247,7 +357,8 @@ mod tests {
 
     #[test]
     fn saved_files_load_back() {
-        let (eq, _) = curve(vec![EqBand { filter: 1, freq: 55.0, gain: 3.0, q: 1.0 }]).unwrap();
+        let (eq, _) =
+            curve(vec![EqBand { filter: 1, freq: 55.0, gain: 3.0, q: 1.0 }], Some("1.0.1.81")).unwrap();
         assert_eq!(parse(&format(&eq)).unwrap(), eq.bands);
     }
 }

@@ -3,9 +3,12 @@
 ## Unreleased
 
 - **Advanced EQ editing**: `eq band <Hz> <dB>`, `eq load <file>` (native format or AutoEQ
-  `ParametricEQ.txt`, with `--dry-run`), `eq save`, `eq reset`. Limits and overall gain follow
-  the vendor app; the previous curve is saved before every write.
+  `ParametricEQ.txt`, with `--dry-run`), `eq save`, `eq reset`. Limits follow the vendor app,
+  and the overall gain is computed exactly as the app computes it (including the formula of
+  firmware older than 1.0.1.46); the previous curve is saved before every write.
 - `eq get` reports the advanced EQ when it is on (the preset byte does not change with it).
+- Verified on a B170: all six noise modes, bass boost levels 1-5, and every control binding
+  the app offers, each written, read back and restored.
 
 ## 0.1.0 — 2026-10-15
 

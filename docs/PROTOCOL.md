@@ -77,7 +77,8 @@ Payload notation: bytes in hex; `f32` = IEEE-754 single precision, little-endian
 Triplet type 1 = current mode, type 2 = last noise-cancelling level chosen.
 Modes: `1` high, `2` mid, `3` low, `4` adaptive, `5` off, `7` transparency. Older models use
 `0` for off; `0xFE` also reads as transparency. Setting a mode plays the headset's voice prompt.
-**confirmed** (values 1, 5, 7 set and read back on the device; 2–4 from the app).
+**confirmed**: all six values set and read back on the device; each noise-cancelling level
+also becomes the "last level" (triplet type 2).
 
 ### 4.2 Battery
 
@@ -111,7 +112,7 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 | Advanced EQ switch | `C04C` → `[s]` | `F04F [s]` | `1` on, `0` off. Writing advanced bands (`F050`) also turns it on. | confirmed |
 | Custom EQ (3 bands) | `C044` | `F041` | `[n, total f32, (type, gain f32, freq f32, q f32) × n]`; bytes past the bands in the answer are stale memory | confirmed |
 | Advanced EQ (up to 8 bands) | `C04D [profile]` | `F050` | `[profile, n, total f32, (type, gain f32, freq f32, q f32) × n]`; profile `0`, type `1` (peaking). The headset stores any band count from 1 to 8 and the total gain as written. | confirmed |
-| Bass boost | `C04E` → `[on, level×2]` | `F051 [on, level×2]` | the device stores both bytes as written | confirmed |
+| Bass boost | `C04E` → `[on, level×2]` | `F051 [on, level×2]` | levels 1–5 (bytes `02`–`0A`) written and read back; the device stores both bytes as written. Audible difference between levels not measured | confirmed |
 | Spatial audio | `C04F` → `[mode, head]` | `F052 [mode, head]` | `00 00` off, `01 00` on, `01 01` head tracking | confirmed |
 | Low latency | `C041` → `[s]` | `F040 [s]` | `1` on, `2` off | confirmed |
 | Multipoint | `C027` → `[s]` | `F01A [s]` | `1` on, `0` off; no reboot | confirmed |
@@ -120,10 +121,22 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 | Codec | `C029` → `[c]` | `F01C [c]` | `0` AAC, `2` LDAC (`1` LHDC, not on the B170). **Writing reboots the headset** (~6 s). | confirmed |
 
 Advanced EQ limits applied by the vendor app (**app**): at most 8 bands, gain −6..+6 dB in
-0.5 dB steps, 20–20 000 Hz, Q 0.1–10. Its total gain, for firmware 1.0.1.46 and later, is
-`min(0, 6 − peak)` where `peak` is the highest point (floored at 0 dB) of the combined response:
-negative headroom only once the curve rises above +6 dB. A 3-band curve with a −3.2 dB total
-gain was written and read back unchanged. **confirmed**
+0.5 dB steps, 20–20 000 Hz, Q 0.1–10.
+
+The total gain sent with a curve is computed by the app, not by the headset (**app**, read from
+`EQAlgorithm.getCoordinate` and its callers):
+
+- `peak` is the highest point, floored at 0 dB, of the curve's response, evaluated as follows:
+  frequencies and gains are rounded to whole numbers (halves away from zero); each band is an
+  RBJ peaking biquad at 44 100 Hz (`A = 10^(gain/40)`, `alpha = sin(w0) / 2Q`); the bands are
+  cascaded as complex products; the grid is 300 points spaced 0.01 decade from 20 Hz, whose
+  first N points are replaced by the N band centres.
+- Firmware 1.0.1.46 and later: `total = min(0, 6 − peak)`, headroom only once the curve rises
+  above +6 dB. Older firmware: `total = −(trunc(peak) + 1)`.
+
+`nothing` implements the same computation; its result matches a transcription of the app's
+code to the last digit on the test curves. The headset stores the total gain as written: a
+3-band curve sent with −3.2 dB was read back unchanged. **confirmed**
 
 ### 4.6 Controls (button and wheel)
 
@@ -139,7 +152,10 @@ layout and the headset stores it as written. **confirmed** (read, write and rest
 
 The B170 reports three bindings: wheel hold, button press, button hold. The wheel's single press
 (play/pause) and its rotation (volume) are fixed and not part of the list. Which actions the
-vendor app offers for each binding: **app** (see `nothing controls actions`). Actions `1F`,
+vendor app offers for each binding: **app** (see `nothing controls actions`). Every offered
+action was written to the wheel's and the button's press-and-hold and read back unchanged
+(17 writes), and to the button's single press for `20` and `16`. **confirmed** (stored; what
+each action does when pressed was not tested one by one). Actions `1F`,
 `20` and `21` drive features of Nothing phones; whether binding `20` makes the headset send the
 magic-button event (`E014`) to a Linux client is **untested**.
 

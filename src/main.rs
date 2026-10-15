@@ -311,7 +311,7 @@ enum BassAction {
     Off,
     /// Turn bass boost on
     On {
-        /// Boost level, 1 to 5 (1 and 2 were tested)
+        /// Boost level, 1 to 5
         #[arg(default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=5))]
         level: u8,
     },
@@ -815,7 +815,8 @@ fn state_dir() -> std::path::PathBuf {
 /// Validates and writes an advanced curve, after saving the current one so it can be restored.
 /// Writing the bands also turns the advanced EQ on (observed on a B170).
 fn write_curve(ctx: &Ctx, bands: Vec<decode::EqBand>, dry_run: bool) -> Res<()> {
-    let (eq, notes) = eqfile::curve(bands)?;
+    let firmware = ctx.get(cmd::GET_FIRMWARE).ok().map(|p| decode::text(&p));
+    let (eq, notes) = eqfile::curve(bands, firmware.as_deref())?;
     for n in &notes {
         eprintln!("note: {n}");
     }
