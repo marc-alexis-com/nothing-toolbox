@@ -93,8 +93,8 @@ pub fn palette(e: Edition) -> Palette {
     match e {
         Edition::White => Palette {
             shell: plain(hex(0xc9ccd0), 0.55, 18.0, 0.45),
-            cushion: plain(hex(0x2a2b2d), 0.18, 10.0, 0.0),
-            lining: plain(hex(0x3a3c3f), 0.0, 1.0, 0.0),
+            cushion: plain(hex(0x101112), 0.22, 9.0, 0.0),
+            lining: plain(hex(0x060607), 0.0, 1.0, 0.0),
             band: plain(hex(0xdcdedf), 0.25, 12.0, 0.0),
             slider: plain(hex(0xd2d4d6), 0.30, 14.0, 0.0),
             pad: plain(hex(0x262728), 0.12, 8.0, 0.0),
@@ -110,8 +110,8 @@ pub fn palette(e: Edition) -> Palette {
         },
         Edition::Black => Palette {
             shell: plain(hex(0x34373c), 0.55, 18.0, 0.45),
-            cushion: plain(hex(0x1e1f21), 0.18, 10.0, 0.0),
-            lining: plain(hex(0x2b2c2e), 0.0, 1.0, 0.0),
+            cushion: plain(hex(0x0c0d0e), 0.22, 9.0, 0.0),
+            lining: plain(hex(0x050506), 0.0, 1.0, 0.0),
             band: plain(hex(0x3c3e41), 0.25, 12.0, 0.0),
             slider: plain(hex(0x393b3e), 0.30, 14.0, 0.0),
             pad: plain(hex(0x1e1f20), 0.12, 8.0, 0.0),
@@ -170,6 +170,19 @@ fn rrect(w: f64, h: f64, r: f64, n: usize) -> Vec<(f64, f64)> {
         }
     }
     out
+}
+
+/// A superellipse `w` x `h` (a squarish oval, as the cushion's outline), `n` points,
+/// counter-clockwise from the right side.
+fn oval(w: f64, h: f64, n: usize) -> Vec<(f64, f64)> {
+    const POWER: f64 = 2.6;
+    let pw = |v: f64| v.signum() * v.abs().powf(2.0 / POWER);
+    (0..n)
+        .map(|i| {
+            let t = std::f64::consts::TAU * i as f64 / n as f64;
+            (w / 2.0 * pw(t.cos()), h / 2.0 * pw(t.sin()))
+        })
+        .collect()
 }
 
 /// A local frame: `at(a, b, c) = o + a u + b v + c w`, in millimetres.
@@ -273,19 +286,30 @@ impl Builder {
         smooth: bool,
         mat: Material,
     ) {
-        let ring = |&(c, e): &(f64, f64)| -> Vec<V3> {
-            rrect(w - 2.0 * e, h - 2.0 * e, (r - e).max(0.5), n).iter().map(|p| f.at(p.0, p.1, c)).collect()
-        };
-        let rows: Vec<Vec<V3>> = rings.iter().map(ring).collect();
+        let outline = |e: f64| rrect(w - 2.0 * e, h - 2.0 * e, (r - e).max(0.5), n);
+        self.loft_with(f, &outline, rings, caps, smooth, mat);
+    }
+
+    /// `loft` for any outline: `outline(inset)` is the ring shrunk by `inset` per side.
+    fn loft_with(
+        &mut self,
+        f: &Frame,
+        outline: &dyn Fn(f64) -> Vec<(f64, f64)>,
+        rings: &[(f64, f64)],
+        caps: (bool, bool),
+        smooth: bool,
+        mat: Material,
+    ) {
+        let rows: Vec<Vec<V3>> =
+            rings.iter().map(|&(c, e)| outline(e).iter().map(|p| f.at(p.0, p.1, c)).collect()).collect();
         self.grid(&rows, true, smooth, mat);
-        let outline = |&(_, e): &(f64, f64)| rrect(w - 2.0 * e, h - 2.0 * e, (r - e).max(0.5), n);
         let (first, last) = (rings[0], rings[rings.len() - 1]);
         let dir = (last.0 - first.0).signum();
         if caps.0 {
-            self.cap(f, &outline(&first), first.0, -dir, mat);
+            self.cap(f, &outline(first.1), first.0, -dir, mat);
         }
         if caps.1 {
-            self.cap(f, &outline(&last), last.0, dir, mat);
+            self.cap(f, &outline(last.1), last.0, dir, mat);
         }
     }
 
@@ -310,6 +334,12 @@ impl Builder {
         self.cap(&b, &section, 0.0, 1.0, mat);
     }
 }
+
+/// The cushion: a squarish oval about the shell's size, a wall 18.5 mm wide round an opening
+/// of 39 x 55 mm (measured on a photo of the inside).
+const CUSH_W: f64 = 76.0;
+const CUSH_H: f64 = 92.0;
+const CUSH_WALL: f64 = 18.5;
 
 /// The cup outline (aluminium shell), in millimetres.
 const CUP_W: f64 = 78.0;
@@ -339,34 +369,36 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
     // Local frame: w outwards along X, u along Y (towards the face), v up.
     let f = Frame { o: [0.0; 3], u: [0.0, side, 0.0], v: [0.0, 0.0, 1.0], w: [side, 0.0, 0.0] };
     let n = 4;
-    // The cushion's profile was drawn for 28 mm; `k` fits it to its thickness.
-    let k = |x: f64| CUSHION_IN + (x - 74.0) * (SHELL_IN - CUSHION_IN) / 28.0;
     // The textured parts show the left cup's markings on the left one.
     let faced = |m: Material| match m.pattern {
         Pattern::Face { black, .. } => Material { pattern: Pattern::Face { black, left: !right }, ..m },
         Pattern::Plain => m,
     };
-    // Cushion: rounded section, its inner face a ring around the lining.
-    b.loft(
+    // Cushion: a fat ring of leather, its outline a squarish oval, rolling over at the tip
+    // into a deep opening that ends in a dark mesh (the profile is the tube's section).
+    let tip = CUSHION_IN;
+    let outline = |e: f64| oval(CUSH_W - 2.0 * e, CUSH_H - 2.0 * e, 24);
+    b.loft_with(
         &f,
-        76.0,
-        90.0,
-        22.0,
-        n,
+        &outline,
         &[
             (SHELL_IN, 1.0),
-            (k(97.0), 0.0),
-            (k(86.0), 0.6),
-            (k(79.0), 3.0),
-            (k(75.5), 7.0),
-            (CUSHION_IN, 11.0),
-            (k(76.0), 13.0),
+            (tip + 16.0, 0.0),
+            (tip + 12.0, 0.3),
+            (tip + 7.0, 1.5),
+            (tip + 3.5, 4.5),
+            (tip + 1.0, 8.0),
+            (tip, 10.5),
+            (tip + 1.0, 13.5),
+            (tip + 3.5, 16.0),
+            (tip + 7.0, 18.0),
+            (tip + 11.0, CUSH_WALL),
         ],
         (false, false),
         true,
         c.cushion,
     );
-    b.cap(&f, &rrect(76.0 - 26.0, 90.0 - 26.0, 9.0, n), k(76.0), -1.0, c.lining);
+    b.cap(&f, &outline(CUSH_WALL), tip + 11.5, -1.0, c.lining);
     // Shell, with a bevel round the outer face.
     b.loft(
         &f,
@@ -573,8 +605,8 @@ mod tests {
     fn proportions_and_budget() {
         for e in [Edition::White, Edition::Black] {
             let tris = headset(e);
-            // PS2 territory: hundreds to a couple of thousand triangles.
-            assert!((800..3000).contains(&tris.len()), "{}", tris.len());
+            // PS2 territory: a few thousand triangles.
+            assert!((800..3600).contains(&tris.len()), "{}", tris.len());
             let (lo, hi) = bounds(&tris);
             // Ear to ear: 174 mm across the covers; the cups 78 mm deep along Y.
             assert!(
