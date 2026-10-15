@@ -4,7 +4,9 @@
 //! per character cell, printed as `▀` half blocks in 24-bit colour.
 
 use crate::headtrack::{euler_deg, mat_from_quat, matmul, Mat3, Quat};
+use crate::kitty::{self, Kitty, Route};
 use crate::model::{self, Edition, Rgb, Tri, V3};
+use crate::ps2;
 use std::sync::OnceLock;
 
 const RESET: &str = "\x1b[0m";
@@ -20,7 +22,7 @@ pub const DEFAULT_ELEVATION: f64 = 0.0;
 /// Orbit camera: azimuth about the vertical (Z), then elevation. The camera looks along +Y
 /// from -Y: at 0/0 it is right behind the head, looking where the wearer looks, so the
 /// wearer's right is on the right of the screen (not a mirror).
-fn view_matrix(az_deg: f64, el_deg: f64) -> Mat3 {
+pub fn view_matrix(az_deg: f64, el_deg: f64) -> Mat3 {
     let (a, e) = (az_deg.to_radians(), el_deg.to_radians());
     let (ca, sa, ce, se) = (a.cos(), a.sin(), e.cos(), e.sin());
     let raz = [[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]];
@@ -214,8 +216,15 @@ pub fn render(q: Quat, edition: Edition, cols: usize, rows: usize, az: f64, el: 
     let h = rows.saturating_sub(1).max(10);
     let picture = rasterize(q, edition, w, 2 * h, az, el);
 
+    let mut out = String::from("\x1b[H");
+    compose(h, &panel(q), status, &mut out, |y, out| encode(&picture, y, out));
+    out
+}
+
+/// The text on the right: pose in degrees and the raw quaternion.
+fn panel(q: Quat) -> [String; 12] {
     let (yaw, pitch, roll) = euler_deg(&mat_from_quat(q));
-    let panel_lines = [
+    [
         "\x1b[96mHead tracking\x1b[0m".to_string(),
         String::new(),
         format!("{RED}●{RESET} right ear cup"),
@@ -228,12 +237,20 @@ pub fn render(q: Quat, edition: Edition, cols: usize, rows: usize, az: f64, el: 
         format!("   y {:+.3}", q[1]),
         format!("   z {:+.3}", q[2]),
         format!("   w {:+.3}", q[3]),
-    ];
+    ]
+}
 
-    let mut out = String::from("\x1b[H");
+/// `h` lines of picture (drawn by `row`), the panel beside the first ones, the status line.
+fn compose(
+    h: usize,
+    panel: &[String],
+    status: &str,
+    out: &mut String,
+    mut row: impl FnMut(usize, &mut String),
+) {
     for y in 0..h {
-        encode(&picture, y, &mut out);
-        if let Some(p) = panel_lines.get(y) {
+        row(y, out);
+        if let Some(p) = panel.get(y) {
             out.push_str("  ");
             out.push_str(p);
         }
@@ -241,7 +258,64 @@ pub fn render(q: Quat, edition: Edition, cols: usize, rows: usize, az: f64, el: 
     }
     out.push_str(status);
     out.push_str("\x1b[K");
-    out
+}
+
+/// Pixels per cell when the terminal does not say (a common kitty font size).
+const CELL: (f64, f64) = (10.0, 21.0);
+/// Lines of the rendered picture, before it is scaled up to the cells: PS2 territory.
+const LINES: f64 = 240.0;
+
+/// The same view as `render`, drawn as a real picture through the kitty graphics protocol.
+pub struct KittyView {
+    kitty: Kitty,
+    route: Route,
+    /// Cell size in pixels, for the terminal size it was asked for.
+    cell: Option<((usize, usize), (f64, f64))>,
+}
+
+impl KittyView {
+    pub fn new(route: Route) -> KittyView {
+        KittyView { kitty: Kitty::new(route), route, cell: None }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        q: Quat,
+        edition: Edition,
+        cols: usize,
+        rows: usize,
+        az: f64,
+        el: f64,
+        status: &str,
+    ) -> String {
+        let w = cols.saturating_sub(PANEL + 1).max(20);
+        let h = rows.saturating_sub(1).clamp(10, kitty::MAX_ROWS);
+        let (cw, ch) = match self.cell {
+            Some((size, cell)) if size == (cols, rows) => cell,
+            _ => {
+                let cell = kitty::cell_pixels(self.route, cols, rows).unwrap_or(CELL);
+                self.cell = Some(((cols, rows), cell));
+                cell
+            }
+        };
+        // Render small, then scale up by a whole factor to about the size of the cells: the
+        // terminal only has a few percent left to stretch.
+        let (bw, bh) = (w as f64 * cw, h as f64 * ch);
+        let k = (bh / LINES).round().max(1.0);
+        let (pw, ph) = (((bw / k) as usize).max(16), ((bh / k) as usize).max(16));
+        let picture = ps2::upscale(&ps2::render(q, edition, pw, ph, az, el), k as usize);
+
+        let mut out = String::new();
+        let id = self.kitty.upload(&picture, w, h, &mut out);
+        out.push_str("\x1b[H");
+        compose(h, &panel(q), status, &mut out, |y, out| {
+            Kitty::placeholder_row(id, y, w, out);
+            out.push_str(RESET);
+        });
+        self.kitty.retire(id, &mut out);
+        out
+    }
 }
 
 /// Raw keyboard input for the viewer (cbreak, no echo), restored on drop.
@@ -399,5 +473,26 @@ mod tests {
     #[test]
     fn tiny_terminal_does_not_panic() {
         let _ = render([0.259, 0.0, 0.0, 0.966], Edition::White, 5, 3, 0.0, 0.0, "");
+    }
+
+    /// Writes what `headtrack --viz` prints in kitty through tmux, for three poses, to
+    /// $NOTHING_PREVIEW_DIR/stream-N.bin (to `cat` in a real terminal).
+    #[test]
+    #[ignore]
+    fn kitty_stream() {
+        let dir = std::env::var("NOTHING_PREVIEW_DIR").expect("NOTHING_PREVIEW_DIR");
+        let (cols, rows) = (
+            std::env::var("COLS").map(|v| v.parse().unwrap()).unwrap_or(120),
+            std::env::var("ROWS").map(|v| v.parse().unwrap()).unwrap_or(40),
+        );
+        let route = if std::env::var_os("DIRECT").is_some() { Route::Direct } else { Route::Tmux };
+        let mut view = KittyView::new(route);
+        let px = |k: &str, d: f64| std::env::var(k).map(|v| v.parse().unwrap()).unwrap_or(d);
+        view.cell = Some(((cols, rows), (px("CW", 10.0), px("CH", 21.0))));
+        for (n, q) in [ID, [0.259, 0.0, 0.0, 0.966], [0.0, 0.0, 0.383, 0.924]].iter().enumerate() {
+            let f = view.render(*q, Edition::White, cols, rows, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "status");
+            std::fs::write(format!("{dir}/stream-{n}.bin"), f).unwrap();
+        }
+        std::mem::forget(view);
     }
 }

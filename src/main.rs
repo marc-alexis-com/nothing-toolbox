@@ -12,8 +12,10 @@ mod hub;
 mod kitty;
 mod link;
 mod logs;
+mod lowpoly;
 mod mac;
 mod model;
+mod ps2;
 mod rfcomm;
 mod signals;
 mod viz;
@@ -145,9 +147,13 @@ enum Command {
     },
     /// Head-tracking stream: one line per sample, or a live 3D view
     Headtrack {
-        /// Terminal 3D view. Keys: arrows or hjkl orbit, 0 resets the view, r or space recenters, q quits
+        /// Terminal 3D view, a real picture in kitty (also inside tmux with allow-passthrough on).
+        /// Keys: arrows or hjkl orbit, 0 resets the view, r or space recenters, q quits
         #[arg(long)]
         viz: bool,
+        /// With --viz: draw with text blocks, even where kitty pictures would work
+        #[arg(long, requires = "viz")]
+        blocks: bool,
     },
     /// Media control by head gestures: nod = play/pause, shake = next track
     Gestures(GestureArgs),
@@ -553,7 +559,9 @@ fn run(cli: Cli) -> Res<()> {
         Command::Watch { on_magic, headtrack, raw } => {
             long_running(cli.mac, opts, timeout, |ctx| watch(ctx, on_magic.as_deref(), headtrack, raw))
         }
-        Command::Headtrack { viz } => long_running(cli.mac, opts, timeout, |ctx| headtrack_cmd(ctx, viz)),
+        Command::Headtrack { viz, blocks } => {
+            long_running(cli.mac, opts, timeout, |ctx| headtrack_cmd(ctx, viz, blocks))
+        }
         Command::Gestures(args) => long_running(cli.mac, opts, timeout, |ctx| gestures(ctx, &args)),
     }
 }
@@ -1361,7 +1369,7 @@ fn watch(ctx: &Ctx, on_magic: Option<&str>, headtrack: bool, raw: bool) -> Res<(
 
 // --- Head tracking ------------------------------------------------------------------------
 
-fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
+fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
     let events = ctx.backend.subscribe(true)?;
     if !viz {
         println!("# t_s yaw pitch roll x y z w");
@@ -1391,9 +1399,13 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
         Some(0x01) => model::Edition::Black,
         _ => model::Edition::White,
     };
+    // A real picture where kitty graphics work, else text blocks.
+    let mut pictures = if blocks { None } else { kitty::detect().map(viz::KittyView::new) };
     let term = viz::RawTerminal::enter();
     let (mut az, mut el) = (viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
     let mut q = [0.0, 0.0, 0.0, 1.0];
+    // What the last picture showed: pictures are only sent again when it changes.
+    let mut drawn = None;
     let mut reference: Option<headtrack::Quat> = None;
     let mut stamps: std::collections::VecDeque<Instant> = Default::default();
     let mut count = 0u64;
@@ -1464,10 +1476,23 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
                 el
             );
             let (cols, rows) = viz::terminal_size();
-            print!("{}", viz::render(shown, edition, cols, rows, az, el, &status));
+            let frame = match pictures.as_mut() {
+                Some(view) => {
+                    let scene = Some((shown, az, el, cols, rows));
+                    if scene == drawn {
+                        continue;
+                    }
+                    drawn = scene;
+                    view.render(shown, edition, cols, rows, az, el, &status)
+                }
+                None => viz::render(shown, edition, cols, rows, az, el, &status),
+            };
+            print!("{frame}");
             let _ = std::io::stdout().flush();
         }
     }
+    // The pictures are deleted from the terminal before the screen is cleared.
+    drop(pictures);
     drop(term);
     Ok(())
 }
