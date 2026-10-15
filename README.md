@@ -221,8 +221,8 @@ trade-off is the one of any permanent owner, described above.
 **Your own EQ curve.** The advanced EQ takes up to 8 peaking bands. `nothing eq edit` draws
 the response in the terminal and sends each change to the headset as you make it: arrows move
 the selected band (gain up and down, frequency left and right), `[` `]` change its width,
-`a`/`x` add or delete a band, `u` puts everything back as it was, `s` saves the curve to a
-file, `q` quits and keeps it. Other `nothing` commands keep working meanwhile.
+`a`/`x` add or delete a band, `r` starts again from the factory curve, `u` puts everything back
+as it was, `s` saves the curve to a file, `q` quits and keeps it. Other `nothing` commands keep working meanwhile.
 
 Or edit it band by band, or load a whole curve, for example an
 [AutoEQ](https://github.com/jaakkopasanen/AutoEq) `ParametricEQ.txt` (peaking filters only, at

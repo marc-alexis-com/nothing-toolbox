@@ -150,6 +150,16 @@ impl Editor {
                 self.selected = self.selected.min(self.bands.len() - 1);
                 return Outcome::Reverted;
             }
+            Key::Char('r') => {
+                // The vendor app's factory curve, as `eq reset` writes it.
+                let factory = eqfile::factory();
+                if self.bands == factory {
+                    return Outcome::Nothing;
+                }
+                self.bands = factory;
+                self.selected = 0;
+                true
+            }
             Key::Char('s') => return Outcome::Save,
             Key::Char('q') => return Outcome::Quit,
             _ => false,
@@ -356,7 +366,8 @@ pub fn render(
         "up/down  gain    left/right  freq",
         "H/L  freq x4     [ ]  width (Q)",
         "tab/1-8 band  a add  x delete",
-        "0 flat  u undo all  s save  q quit",
+        "0 flat  r factory  u undo all",
+        "s save  q quit",
     ] {
         panel.push(format!("{GRID}{k}{RESET}"));
     }
@@ -514,6 +525,18 @@ mod tests {
         assert_eq!(ed.handle(Key::Char('u')), Outcome::Reverted);
         assert!(ed.is_original());
         assert_eq!(ed.handle(Key::Char('u')), Outcome::Nothing);
+    }
+
+    #[test]
+    fn factory_reset_then_undo() {
+        let mut ed = Editor::new(vec![band(58.0, -1.0, 1.0), band(440.0, 6.0, 1.0), band(6600.0, -6.0, 1.0)]);
+        ed.selected = 2;
+        assert_eq!(ed.handle(Key::Char('r')), Outcome::Changed);
+        assert_eq!(ed.bands, eqfile::factory());
+        assert_eq!(ed.selected, 0);
+        assert_eq!(ed.handle(Key::Char('r')), Outcome::Nothing, "already the factory curve");
+        assert_eq!(ed.handle(Key::Char('u')), Outcome::Reverted);
+        assert_eq!(ed.bands[1].gain, 6.0);
     }
 
     fn visible(s: &str) -> String {

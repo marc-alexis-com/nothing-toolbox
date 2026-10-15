@@ -275,6 +275,7 @@ enum EqAction {
         tab/shift+tab, 1-8 select a band\n  \
         a / x              add a flat band / delete the selected one\n  \
         0                  set the selected band flat\n  \
+        r                  the vendor app's factory curve (three flat bands)\n  \
         u                  undo everything: the starting curve, and the preset if it was in use\n  \
         s                  save the curve to FILE\n  \
         q, Ctrl+C          quit, keeping the curve on the headset\n\n\

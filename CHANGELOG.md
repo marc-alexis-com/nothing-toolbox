@@ -4,8 +4,8 @@
 
 - **`eq edit`**: an interactive editor for the advanced EQ. It draws the response curve in the
   terminal, highlights the selected band's own shape, and sends each change to the headset
-  0.3 s after the last key, then reads it back. `u` restores the starting curve, and the preset
-  if one was in use; `s` saves the curve to a file. It owns the channel while it runs, so other
+  0.3 s after the last key, then reads it back. `r` starts again from the factory curve, `u`
+  restores the starting curve and the preset if one was in use; `s` saves the curve to a file. It owns the channel while it runs, so other
   commands (the ANC key) keep working. Tested on a B170: a change sent and read back, read
   through the socket by a second command, undone with `u`, and sent when quitting right after a
   key.
