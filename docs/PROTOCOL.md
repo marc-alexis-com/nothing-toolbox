@@ -72,7 +72,7 @@ Payload notation: bytes in hex; `f32` = IEEE-754 single precision, little-endian
 |---|---|---|---|
 | `C01E` | `03` | `401E`: `(type, value, 00)` triplets | confirmed |
 | `F00F` | `01 <mode> 00` | `700F` | confirmed |
-| event `E003` | same triplets as `401E` | | app |
+| event `E003` | same triplets as `401E` | | confirmed |
 
 Triplet type 1 = current mode, type 2 = last noise-cancelling level chosen.
 Modes: `1` high, `2` mid, `3` low, `4` adaptive, `5` off, `7` transparency. Older models use
@@ -126,13 +126,19 @@ a quaternion **x, y, z, w** as four int32 little-endian in **Q30** fixed point (
 the norm is 1.0000 on every frame. Rate ~9–10 frames per second. A few frames may still
 arrive right after the stop. **confirmed**
 
+Axes, from a labelled recording of a person wearing the headset: nodding rotates about **X**
+(±30–50°), shaking the head about **Z**; slow tilts towards a shoulder barely register on any
+axis. **confirmed** (one unit, one wearer). The orientation can drift: once, after a long
+streaming session, it turned steadily at about −21°/s around Z with the head still; a power
+cycle of the headset removed it. **confirmed** (seen once, cause unknown)
+
 ### 4.7 Pushed events
 
 | Code | Event | Payload | Status |
 |---|---|---|---|
 | `E001` | battery changed | as `4007` | app |
 | `E002` | device state changed | as `400A` | app |
-| `E003` | noise control changed | as `401E` | app |
+| `E003` | noise control changed | as `401E`: `01 07 00` transparency, `01 01 00` high, sent when the mode is changed on the headset (not after `F00F`) | confirmed |
 | `E009` | working status changed | 3 bytes, meaning unknown | inferred |
 | `E00E` | connection changed | 8 bytes (address + state) | inferred |
 | `E014` | **magic button pressed** | 2 bytes; the app reads byte 0 as an action code | app |

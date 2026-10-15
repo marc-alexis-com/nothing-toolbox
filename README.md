@@ -171,10 +171,16 @@ nothing gestures                     # nod: play/pause, shake: next track
 ```
 
 A gesture has to be a quick back-and-forth on one dominant axis that returns to neutral; slow
-head movements (looking around, leaning) are ignored, and the detector re-arms only once the
-head is still again. `--debug` prints the measured amplitude and speed of every sample, to tune
-`--nod-amplitude`, `--nod-speed`, `--shake-amplitude` and `--shake-speed` to your own way of
-nodding.
+head movements (looking around, leaning, tilting) are ignored, and the detector re-arms only once
+the head is still again. On the B170 a nod is a rotation about the stream's X axis and a shake
+about Z; both were checked against a labelled recording of real gestures, which the test suite
+replays (3 nods, 3 shakes, no false positive during slow tilts).
+
+The headset's orientation can drift: a steady rotation of about 20°/s around the vertical axis
+was seen once, after a very long head-tracking session, and was gone after power-cycling the
+headset. The detector learns such a drift and subtracts it. `--debug` prints, for every sample,
+the measured amplitude, speed and drift estimate, to tune `--nod-amplitude`, `--nod-speed`,
+`--shake-amplitude` and `--shake-speed` to your own way of moving.
 
 ## Safety
 
@@ -204,13 +210,23 @@ each fact marked as **confirmed** on the device, taken from the vendor app's beh
 | Anything else | | | untested; reports welcome, writes refused by default |
 
 On the B170, every read and every write listed under *Safety* was run with this tool and read
-back. Not yet exercised with this tool: `codec set` (the same frames were, by hand), the
-magic-button hook (the exact payload of the button event has not been captured yet), the
-gesture thresholds on real nods, and `logs dump` with an actual log to download (the test unit
-had none).
+back, the pushed noise-control event was observed when pressing the headset's button, and the
+gesture detector was checked against real head movements. Not yet exercised with this tool:
+`codec set` (the same frames were, by hand), the magic-button event (a button set to noise
+control reports a noise-control event instead), and `logs dump` with an actual log to download
+(the test unit had none).
 
 If you own another Nothing product and want to help, the output of `nothing status` and
 `nothing info` (remove the serial number and addresses) in an issue is a good start.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `no connected Nothing headset found` | The headset is not connected over Bluetooth, or `bluetoothctl` is missing: pass `--mac`. |
+| `Device or resource busy` from another tool | Something else holds the channel. Use `nothing` for both, or stop the other tool. |
+| The head-tracking view keeps turning while the head is still | Orientation drift inside the headset. Power-cycle it; gestures compensate on their own. |
+| A key binding does nothing | Look at `$XDG_RUNTIME_DIR/nothing.log`. |
 
 ## Development
 

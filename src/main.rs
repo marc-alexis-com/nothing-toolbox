@@ -1044,19 +1044,22 @@ fn gestures(ctx: &Ctx, a: &GestureArgs) -> Res<()> {
             Event::Connected { .. } => det.reset(),
             Event::Frame(f) if f.cmd == cmd::EV_HEADTRACK => {
                 let Some(q) = decode::quaternion(&f.payload) else { continue };
-                let (yaw, pitch, _) = headtrack::euler_deg(&headtrack::mat_from_quat(q));
+                // On the B170 a nod turns the head about X (roll), a shake about Z (yaw).
+                let (yaw, _, roll) = headtrack::euler_deg(&headtrack::mat_from_quat(q));
                 let t = start.elapsed().as_secs_f64();
-                let g = det.push(t, pitch, yaw);
+                let g = det.push(t, roll, yaw);
                 if a.debug {
                     let d = det.diag;
                     eprintln!(
-                        "{t:7.2} pitch {pitch:+6.1} yaw {yaw:+6.1} | swing p {:5.1} y {:5.1} | speed p {:+6.0}/{:+6.0} y {:+6.0}/{:+6.0}{}",
-                        d.pitch_swing,
-                        d.yaw_swing,
-                        d.pitch_speed.0,
-                        d.pitch_speed.1,
-                        d.yaw_speed.0,
-                        d.yaw_speed.1,
+                        "{t:7.2} nod {roll:+6.1} shake {yaw:+7.1} | swing n {:5.1} s {:5.1} | speed n {:+5.0}/{:+5.0} s {:+5.0}/{:+5.0} | drift {:+5.1} {:+5.1} deg/s{}",
+                        d.nod_swing,
+                        d.shake_swing,
+                        d.nod_speed.0,
+                        d.nod_speed.1,
+                        d.shake_speed.0,
+                        d.shake_speed.1,
+                        d.drift.0,
+                        d.drift.1,
                         if d.armed { "" } else { "  (disarmed)" }
                     );
                 }

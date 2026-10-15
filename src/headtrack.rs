@@ -102,6 +102,13 @@ pub struct Tuning {
     pub axis_ratio: f64,
     /// Exponential smoothing factor of the input angles.
     pub smoothing: f64,
+    /// Time constant of the drift estimate, seconds. The headset's orientation can drift
+    /// steadily (21 deg/s around Z was measured once); a slowly learnt per-axis rate is
+    /// subtracted, so that a drifting head still looks still.
+    pub drift_tau: f64,
+    /// Rates further than this from the current drift estimate (deg/s) are motion, not
+    /// drift, and are not learnt.
+    pub drift_band: f64,
     /// Samples needed in the window before deciding anything.
     pub min_samples: usize,
 }
@@ -109,11 +116,11 @@ pub struct Tuning {
 impl Default for Tuning {
     fn default() -> Self {
         Tuning {
-            // A nod has a smaller natural range than a shake, and the smoothing below eats
-            // ~16% of a 14-degree nod at 9 Hz (seen swing 11.8 deg, peak speed 36 deg/s):
-            // with the shake thresholds, ordinary nods were missed. Starting point only,
-            // to be tuned on real use (--debug shows the measured swing and speed).
-            nod: AxisTuning { amplitude: 10.0, speed: 30.0 },
+            // Measured on a B170: nods swing 20-80 deg at over 100 deg/s on the X axis,
+            // shakes about as much on Z. Slow head tilts stay under 20 deg/s, so the speed
+            // gate, not the amplitude, is what rejects them; a short nod, once smoothed,
+            // can measure as little as 12 deg.
+            nod: AxisTuning { amplitude: 10.0, speed: 45.0 },
             shake: AxisTuning { amplitude: 15.0, speed: 45.0 },
             window: 1.3,
             return_tolerance: 9.0,
@@ -123,6 +130,8 @@ impl Default for Tuning {
             base_alpha: 0.08,
             axis_ratio: 1.8,
             smoothing: 0.5,
+            drift_tau: 3.0,
+            drift_band: 40.0,
             min_samples: 5,
         }
     }
@@ -131,14 +140,19 @@ impl Default for Tuning {
 /// Per-sample diagnostics, for tuning (`gestures --debug`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Diag {
-    pub pitch_swing: f64,
-    pub yaw_swing: f64,
-    pub pitch_speed: (f64, f64),
-    pub yaw_speed: (f64, f64),
+    pub nod_swing: f64,
+    pub shake_swing: f64,
+    pub nod_speed: (f64, f64),
+    pub shake_speed: (f64, f64),
+    /// Current drift estimate (nod axis, shake axis), deg/s.
+    pub drift: (f64, f64),
     pub armed: bool,
 }
 
 /// Nod/shake detector on head angles sampled at ~9 Hz.
+///
+/// Axes, measured on a B170: a nod is a rotation about the stream's X axis (the roll
+/// angle of `euler_deg`), a shake a rotation about Z (yaw).
 ///
 /// A gesture fires when, over the sliding window, its axis shows a peak-to-peak swing above
 /// `amplitude`, a speed above `speed` in both directions (a real back-and-forth: the main
@@ -147,9 +161,13 @@ pub struct Diag {
 /// The neutral pose slowly follows the head while it is still, absorbing drift.
 pub struct Detector {
     pub tuning: Tuning,
-    samples: VecDeque<(f64, f64, f64)>, // (t, smoothed pitch, smoothed yaw)
+    samples: VecDeque<(f64, f64, f64)>, // (t, smoothed nod angle, smoothed shake angle)
     base: Option<(f64, f64)>,
     last: Option<(f64, f64)>,
+    /// Previous raw input (t, nod, shake), drift estimate and drift-free angles.
+    raw: Option<(f64, f64, f64)>,
+    drift: (f64, f64),
+    unwound: (f64, f64),
     last_fire: f64,
     armed: bool,
     calm_since: Option<f64>,
@@ -163,6 +181,9 @@ impl Detector {
             samples: VecDeque::new(),
             base: None,
             last: None,
+            raw: None,
+            drift: (0.0, 0.0),
+            unwound: (0.0, 0.0),
             last_fire: f64::NEG_INFINITY,
             armed: true,
             calm_since: None,
@@ -174,8 +195,36 @@ impl Detector {
         *self = Detector::new(self.tuning);
     }
 
-    pub fn push(&mut self, t: f64, pitch: f64, yaw: f64) -> Option<Gesture> {
+    /// Removes the learnt drift from the raw angles; returns drift-free angles.
+    fn undrift(&mut self, t: f64, nod: f64, shake: f64) -> (f64, f64) {
         let tu = self.tuning;
+        match self.raw {
+            None => self.unwound = (nod, shake),
+            Some((t0, n0, s0)) => {
+                let dt = t - t0;
+                let (dn, ds) = (wrapdiff(nod, n0), wrapdiff(shake, s0));
+                if dt > 1e-4 {
+                    let a = (dt / tu.drift_tau).min(1.0);
+                    let (vn, vs) = (dn / dt, ds / dt);
+                    if (vn - self.drift.0).abs() < tu.drift_band && (vs - self.drift.1).abs() < tu.drift_band
+                    {
+                        self.drift.0 += a * (vn - self.drift.0);
+                        self.drift.1 += a * (vs - self.drift.1);
+                    }
+                }
+                self.unwound.0 += dn - self.drift.0 * dt.max(0.0);
+                self.unwound.1 += ds - self.drift.1 * dt.max(0.0);
+            }
+        }
+        self.raw = Some((t, nod, shake));
+        self.unwound
+    }
+
+    /// Feeds one sample: `nod` and `shake` are the head angles about the nod and shake
+    /// axes, in degrees. Returns a gesture when one completes.
+    pub fn push(&mut self, t: f64, nod: f64, shake: f64) -> Option<Gesture> {
+        let tu = self.tuning;
+        let (pitch, yaw) = self.undrift(t, nod, shake);
         let (p, y) = match self.last {
             None => (pitch, yaw),
             Some((lp, ly)) => {
@@ -209,6 +258,7 @@ impl Detector {
             && wrapdiff(y, by).abs() < tu.return_tolerance;
         self.calm_since = if calm { Some(self.calm_since.unwrap_or(t)) } else { None };
         self.diag.armed = self.armed;
+        self.diag.drift = self.drift;
 
         if !self.armed {
             if self.calm_since.is_some_and(|c| t - c >= tu.calm_hold) && t - self.last_fire >= tu.refractory {
@@ -243,10 +293,11 @@ impl Detector {
         let (vp_hi, vp_lo) = speeds(|s| s.1);
         let (vy_hi, vy_lo) = speeds(|s| s.2);
         self.diag = Diag {
-            pitch_swing: swing_p,
-            yaw_swing: swing_y,
-            pitch_speed: (vp_lo, vp_hi),
-            yaw_speed: (vy_lo, vy_hi),
+            nod_swing: swing_p,
+            shake_swing: swing_y,
+            nod_speed: (vp_lo, vp_hi),
+            shake_speed: (vy_lo, vy_hi),
+            drift: self.drift,
             armed: true,
         };
 
@@ -319,10 +370,12 @@ mod tests {
     }
 
     /// Replays (pitch(t), yaw(t)) at 9 Hz through quaternions, like the live path.
+    /// Replays (nod angle(t), shake angle(t)) at 9 Hz through quaternions, like the live
+    /// path: the nod is a rotation about X (roll), the shake about Z (yaw).
     fn replay(
         duration: f64,
-        pitch: impl Fn(f64) -> f64,
-        yaw: impl Fn(f64) -> f64,
+        nod: impl Fn(f64) -> f64,
+        shake: impl Fn(f64) -> f64,
         noise: f64,
     ) -> Vec<Gesture> {
         let mut det = Detector::new(Tuning::default());
@@ -331,14 +384,14 @@ mod tests {
         let mut out = Vec::new();
         for i in 0..(duration / dt).round() as usize {
             let t = i as f64 * dt;
-            let (mut y, mut p) = (yaw(t), pitch(t));
+            let (mut y, mut r) = (shake(t), nod(t));
             if noise > 0.0 {
                 y += rng.gauss(noise);
-                p += rng.gauss(noise);
+                r += rng.gauss(noise);
             }
-            let q = quat_from_euler(y, p, 0.0);
-            let (y2, p2, _) = euler_deg(&mat_from_quat(q.map(|v| v / norm(q))));
-            out.extend(det.push(t, p2, y2));
+            let q = quat_from_euler(y, 0.0, r);
+            let (y2, _, r2) = euler_deg(&mat_from_quat(q.map(|v| v / norm(q))));
+            out.extend(det.push(t, r2, y2));
         }
         out
     }
@@ -358,12 +411,6 @@ mod tests {
     #[test]
     fn clean_nod() {
         assert_eq!(replay(2.2, dip(24.0, 0.7, 0.78), zero, 0.0), vec![Gesture::Nod]);
-    }
-
-    #[test]
-    fn small_nod_is_caught() {
-        // Shallower than what the original detector required (15 deg).
-        assert_eq!(replay(2.2, dip(14.0, 0.7, 0.7), zero, 0.0), vec![Gesture::Nod]);
     }
 
     #[test]
@@ -411,5 +458,47 @@ mod tests {
     #[test]
     fn diagonal_is_ignored() {
         assert!(replay(2.2, dip(22.0, 0.7, 0.78), dip(22.0, 0.7, 0.78), 0.0).is_empty());
+    }
+
+    fn drift(rate: f64) -> impl Fn(f64) -> f64 {
+        move |t| rate * t
+    }
+
+    #[test]
+    fn steady_drift_alone_is_ignored() {
+        // 21 deg/s around Z: measured on a B170 that had been streaming for a long time.
+        assert!(replay(20.0, zero, drift(-21.0), 0.5).is_empty());
+    }
+
+    #[test]
+    fn gestures_survive_drift() {
+        let d = drift(-21.0);
+        let s = cycle(24.0, 8.0, 0.7);
+        assert_eq!(replay(12.0, zero, move |t| d(t) + s(t), 0.5), vec![Gesture::Shake]);
+        let d = drift(-21.0);
+        assert_eq!(replay(12.0, dip(24.0, 8.0, 0.78), d, 0.5), vec![Gesture::Nod]);
+    }
+
+    /// A real B170 recording (`nothing headtrack` output): still, 3 nods, still, 3 shakes,
+    /// still, 3 slow head tilts, still. The headset had just been power-cycled.
+    #[test]
+    fn real_recording() {
+        let mut det = Detector::new(Tuning::default());
+        let mut seen = Vec::new();
+        for line in include_str!("testdata/b170-gestures.txt").lines().filter(|l| !l.starts_with('#')) {
+            let f: Vec<f64> = line.split_whitespace().map(|v| v.parse().unwrap()).collect();
+            let q = [f[4], f[5], f[6], f[7]];
+            let (yaw, _, roll) = euler_deg(&mat_from_quat(q));
+            if let Some(g) = det.push(f[0], roll, yaw) {
+                seen.push((f[0], g));
+            }
+        }
+        let count = |g: Gesture, from: f64, to: f64| {
+            seen.iter().filter(|(t, x)| *x == g && (from..to).contains(t)).count()
+        };
+        assert_eq!(count(Gesture::Nod, 4.5, 12.0), 3, "{seen:?}");
+        assert_eq!(count(Gesture::Shake, 17.0, 23.5), 3, "{seen:?}");
+        // Nothing else before the end of the tilts.
+        assert_eq!(seen.iter().filter(|(t, _)| *t < 34.5).count(), 6, "{seen:?}");
     }
 }
