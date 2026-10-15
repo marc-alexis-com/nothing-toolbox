@@ -149,7 +149,8 @@ enum Command {
     /// Head-tracking stream: one line per sample, or a live 3D view
     Headtrack {
         /// Terminal 3D view, a real picture in kitty (also inside tmux with allow-passthrough on).
-        /// Keys: arrows or hjkl orbit, 0 resets the view, r or space recenters, q quits
+        /// Keys: arrows or hjkl orbit, 0 resets the view, r or space recenters, c swaps the
+        /// colour (white/black), q quits
         #[arg(long)]
         viz: bool,
         /// With --viz: draw with text blocks, even where kitty pictures would work

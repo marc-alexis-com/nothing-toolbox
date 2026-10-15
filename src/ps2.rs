@@ -517,4 +517,20 @@ mod tests {
             }
         }
     }
+
+    /// Writes $NOTHING_PREVIEW_DIR/frame-NNN.png: the recording replayed sample by sample (the
+    /// README's animation). `cargo test --release animation -- --ignored`.
+    #[test]
+    #[ignore]
+    fn animation() {
+        let dir = std::env::var("NOTHING_PREVIEW_DIR").expect("NOTHING_PREVIEW_DIR");
+        let (from, to) = (
+            std::env::var("FROM").map_or(0.0, |v| v.parse().unwrap()),
+            std::env::var("TO").map_or(f64::MAX, |v| v.parse().unwrap()),
+        );
+        for (i, (_, q)) in recording().iter().filter(|(t, _)| (from..to).contains(t)).enumerate() {
+            let img = render(*q, Edition::White, 320, 240, -35.0, 20.0);
+            std::fs::write(format!("{dir}/frame-{i:03}.png"), png(&img)).unwrap();
+        }
+    }
 }

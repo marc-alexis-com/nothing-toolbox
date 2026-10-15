@@ -30,13 +30,19 @@ diagnostic logs. No phone, no app, no account.
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
 | **Sound** | EQ presets, and an advanced EQ with an interactive editor in the terminal (you hear each change as you make it), band-by-band edits, or curves loaded from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
 | **Events** | live feed of what the headset pushes (battery, worn or not, noise mode, button…); turn the headset's button into a Linux button |
-| **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
+| **Head tracking** | the headset's orientation sensor as a quaternion stream, or live in 3D: a low-poly model of the headset, in its own colour, drawn as a real picture in kitty (tmux included) and in text blocks anywhere else |
 | **Controls** | remap the button and the wheel without the phone app |
 | **Gestures** | nod to play/pause, shake to skip, through any media command (`playerctl` by default) |
 | **Logs** | list and download the headset's diagnostic logs, read-only |
 | **One channel, shared** | the headset allows one connection: `nothing` keeps one owner and routes everything through it |
 
 ## A look at it
+
+<p align="center">
+  <img src="docs/images/headtrack.gif" alt="nothing headtrack --viz in kitty: a low-poly white Nothing Headphone (1) on a mirror floor, nodding, then shaking" width="100%">
+  <br><sub><code>nothing headtrack --viz</code> in kitty, PS2 style. The model follows the headset's own
+  orientation sensor; here, a real recording of three nods and three shakes, replayed by the tool's renderer.</sub>
+</p>
 
 <p align="center">
   <img src="docs/images/eq-edit.png" alt="nothing eq edit: the response curve of a 7-band EQ drawn in the terminal, the selected band highlighted in red, the band list on the right" width="100%">
@@ -49,8 +55,13 @@ diagnostic logs. No phone, no app, no account.
 </p>
 
 <p align="center">
-  <img src="docs/images/headtrack.png" alt="nothing headtrack --viz: a live 3D gnomon following the head" width="85%">
-  <br><sub><code>nothing headtrack --viz</code>, following a real head at 9 frames per second.</sub>
+  <img src="docs/images/headtrack-editions.png" alt="The low-poly headset in its white and black editions" width="100%">
+  <br><sub>Both editions: the view reads the headset's colour and draws the right one (<code>c</code> swaps it).</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/headtrack-blocks.png" alt="nothing headtrack --viz outside kitty: the headset drawn with half-block characters, and a panel with the angles and keys" width="85%">
+  <br><sub>Outside kitty (or with <code>--blocks</code>), the same view in 24-bit colour text blocks.</sub>
 </p>
 
 <p align="center">
@@ -115,7 +126,7 @@ nothing audiodo    get | on | off
 nothing codec get                    # codec set aac|ldac needs --dangerous (reboots the headset)
 nothing controls [get | set <control> <gesture> <action> | actions]
 nothing watch [--on-magic CMD] [--headtrack] [--raw]
-nothing headtrack [--viz]
+nothing headtrack [--viz [--blocks]]  # quaternion stream, or the live 3D view
 nothing gestures [--dry-run] [--debug] [--nod-cmd CMD] [--shake-cmd CMD]
 nothing logs list | info | debug | dump [-o FILE]
 nothing daemon [status]
@@ -279,6 +290,19 @@ headset. The detector learns such a drift and subtracts it. `--debug` prints, fo
 the measured amplitude, speed and drift estimate, to tune `--nod-amplitude`, `--nod-speed`,
 `--shake-amplitude` and `--shake-speed` to your own way of moving.
 
+**Watch your head in 3D.** `nothing headtrack --viz` draws the headset, in its own colour,
+turning with your head; it starts seen from straight behind, so its right cup is on the right.
+
+```sh
+nothing headtrack --viz              # a real picture in kitty, text blocks elsewhere
+nothing headtrack --viz --blocks     # text blocks even in kitty
+```
+
+Arrows (or `hjkl`) orbit the camera, `0` puts it back, `r` (or space) takes the current pose
+as straight ahead and the camera behind it, `c` swaps the colour, `q` quits. In kitty the
+picture also shows through tmux when it lets graphics through (`set -g allow-passthrough on`
+in `tmux.conf`). A new picture is only sent when the pose or the view changes.
+
 ## Safety
 
 The headset will obey commands that reboot it, reset it to factory settings or forget paired
@@ -329,6 +353,7 @@ If you own another Nothing product and want to help, the output of `nothing stat
 |---|---|
 | `no connected Nothing headset found` | The headset is not connected over Bluetooth (plugging the charging cable drops the link on a B170), or `bluetoothctl` is missing: pass `--mac`. |
 | `Device or resource busy` from another tool | Something else holds the channel. Use `nothing` for both, or stop the other tool. |
+| `headtrack --viz` shows text blocks inside tmux, in kitty | tmux does not pass graphics through: add `set -g allow-passthrough on` to `tmux.conf`. |
 | The head-tracking view keeps turning while the head is still | Orientation drift inside the headset. Power-cycle it; gestures compensate on their own. |
 | A key binding does nothing | Look at `$XDG_RUNTIME_DIR/nothing.log`. |
 | Only the volume works on the headset; play/pause and the button do nothing | The headset probably thinks it is not worn (for example one ear cup off the ear): `nothing status` then shows `out`. Wear it properly, or turn wear detection off: `nothing in-ear off`. |
@@ -358,7 +383,13 @@ The source is small and dependency-light (`clap`, `clap_complete`, `libc`):
 | `src/hub.rs` | the channel owner: reconnects, subscribers, head-tracking reference count |
 | `src/backend.rs` | local socket protocol, daemon detection |
 | `src/headtrack.rs` | quaternion maths and the nod/shake detector |
-| `src/viz.rs` | terminal 3D view |
+| `src/viz.rs` | `headtrack --viz`: the text-block view, and the kitty picture's window |
+| `src/model.rs` | the head-tracking frame, and the simple model the text-block view draws |
+| `src/lowpoly.rs` | the low-poly headset drawn in kitty, from the product's measurements |
+| `src/ps2.rs` | the software renderer: depth buffer, lighting, mirror floor, dithering |
+| `src/texture.rs` | the texture of the cups' outer face (`tools/bake-face.sh` makes it) |
+| `src/kitty.rs` | the kitty graphics protocol, through tmux too (Unicode placeholders) |
+| `src/zlib.rs` | the deflate compressor for the pictures sent to kitty |
 | `src/signals.rs` | clean shutdown on Ctrl+C / SIGTERM |
 | `src/main.rs` | the command line |
 
@@ -373,12 +404,15 @@ the Headphone (1) under its code name, and a write-up of the Ear (2) protocol on
 
 This is an independent interoperability project, built on hardware owned by the author. It is
 not affiliated with, endorsed by or supported by Nothing Technology Limited. The repository
-contains no firmware, application code, images or other material from Nothing, only a
-description of the wire protocol and an original client. "Nothing" and "Nothing Headphone (1)"
+contains no firmware or application code from Nothing, only a description of the wire
+protocol and an original client. The 3D headset of `headtrack --viz` is an original model built
+from the product's published dimensions; the texture on the outer face of its cups is a
+64 × 74-pixel reduction of a product render (`tools/bake-face.sh`). "Nothing" and "Nothing Headphone (1)"
 are trademarks of their owner, used here only to name the hardware this tool talks to. The
 illustrations are original: the LED-matrix drawings are generated by
 [docs/images/render.py](docs/images/render.py) (fonts: Iosevka, and Doto under the SIL Open Font
-License), the screenshots show this tool's real output.
+License), the screenshots show this tool's real output, and the head-tracking animation is the tool's
+own renderer replaying a real recording.
 
 Use at your own risk: the safety policy above limits what can be sent, it cannot guarantee
 what the headset does with it.
