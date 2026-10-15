@@ -1,14 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-15
 
 - **`eq edit`**: an interactive editor for the advanced EQ. It draws the response curve in the
   terminal, highlights the selected band's own shape, and sends each change to the headset
   0.3 s after the last key, then reads it back. `r` starts again from the factory curve, `u`
-  restores the starting curve and the preset if one was in use; `s` saves the curve to a file. It owns the channel while it runs, so other
-  commands (the ANC key) keep working. Tested on a B170: a change sent and read back, read
-  through the socket by a second command, undone with `u`, and sent when quitting right after a
-  key.
+  restores the starting curve and the preset if one was in use, `s` saves the curve to a file.
+  It owns the channel while it runs, so other commands (the ANC key) keep working.
+  Tested on a B170: a change sent and read back, read through the socket by a second command,
+  undone with `u`, sent when quitting right after a key, and the factory curve sent with `r`.
 - README: screenshots of the editor, of everyday commands and of the help; a status-bar recipe
   that updates as soon as the headset changes mode (`watch` piped into a Waybar signal).
 

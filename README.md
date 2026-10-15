@@ -67,9 +67,9 @@ RFCOMM socket, without D-Bus, and uses `bluetoothctl` only to find the connected
 [releases page](https://github.com/marc-alexis-com/nothing-toolbox/releases):
 
 ```sh
-curl -LO https://github.com/marc-alexis-com/nothing-toolbox/releases/latest/download/nothing-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-tar xzf nothing-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-install -Dm755 nothing-v0.2.0-x86_64-unknown-linux-musl/nothing ~/.local/bin/nothing
+curl -LO https://github.com/marc-alexis-com/nothing-toolbox/releases/latest/download/nothing-v0.3.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf nothing-v0.3.0-x86_64-unknown-linux-musl.tar.gz
+install -Dm755 nothing-v0.3.0-x86_64-unknown-linux-musl/nothing ~/.local/bin/nothing
 ```
 
 Each archive also holds shell completions; a `.sha256` file sits next to it.

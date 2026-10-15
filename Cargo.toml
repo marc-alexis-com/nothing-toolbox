@@ -1,6 +1,6 @@
 [package]
 name = "nothing-toolbox"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Linux client for the Nothing Headphone (1) (B170): ANC, status, notifications, head tracking, logs"
 license = "MIT"
