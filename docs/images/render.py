@@ -266,6 +266,9 @@ def parse_ansi(text):
                     color, bold, bg = AYU["fg"], False, None
                 elif 40 <= c <= 47:
                     bg = AYU["pal"][c - 40]
+                elif c == 48 and i + 4 < len(codes) and codes[i + 1] == 2:
+                    bg = "#%02x%02x%02x" % tuple(codes[i + 2:i + 5])
+                    i += 4
                 elif c == 49:
                     bg = None
                 elif c == 1:
@@ -323,8 +326,16 @@ def terminal(src, name, cols=None):
         for col, (ch, color, bold, bg) in enumerate(line):
             if bg:
                 x, y = (pad_x + col * cell) * K, (pad_y + row * lh) * K
-                d.rectangle([x, y, x + cell * K - 1, y + lh * K - 1], fill=bg)
+                d.rectangle([x, y, x + cell * K, y + lh * K], fill=bg)
             if ch == " ":
+                continue
+            if ch in "▀▄█":
+                # Half blocks fill their half of the cell exactly, as in kitty: the glyph would
+                # leave gaps with this line height.
+                x, y = (pad_x + col * cell) * K, (pad_y + row * lh) * K
+                mid = y + lh * K / 2
+                top, bottom = (y, mid) if ch == "▀" else (mid, y + lh * K) if ch == "▄" else (y, y + lh * K)
+                d.rectangle([x, top, x + cell * K, bottom], fill=color)
                 continue
             if 0x2800 < ord(ch) <= 0x28FF:
                 braille(d, pad_x + col * cell, pad_y + row * lh, cell, lh, ord(ch) - 0x2800, color)

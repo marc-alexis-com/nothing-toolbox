@@ -12,6 +12,7 @@ mod hub;
 mod link;
 mod logs;
 mod mac;
+mod model;
 mod rfcomm;
 mod signals;
 mod viz;
@@ -1383,6 +1384,11 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
         return Ok(());
     }
 
+    // Draw the headset in its own colour (C00C: 0x01 black, 0x09 white).
+    let edition = match ctx.get(cmd::GET_COLOR).ok().and_then(|p| p.first().copied()) {
+        Some(0x01) => model::Edition::Black,
+        _ => model::Edition::White,
+    };
     let term = viz::RawTerminal::enter();
     let (mut az, mut el) = (viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
     let mut q = [0.0, 0.0, 0.0, 1.0];
@@ -1452,7 +1458,7 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool) -> Res<()> {
                 el
             );
             let (cols, rows) = viz::terminal_size();
-            print!("{}", viz::render(shown, cols, rows, az, el, &status));
+            print!("{}", viz::render(shown, edition, cols, rows, az, el, &status));
             let _ = std::io::stdout().flush();
         }
     }
