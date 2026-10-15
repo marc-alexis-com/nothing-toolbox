@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-15
 
 - **Advanced EQ editing**: `eq band <Hz> <dB>`, `eq load <file>` (native format or AutoEQ
   `ParametricEQ.txt`, with `--dry-run`), `eq save`, `eq reset`. Limits follow the vendor app,
