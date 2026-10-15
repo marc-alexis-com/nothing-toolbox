@@ -14,10 +14,29 @@ const CUP_H: f32 = 90.0;
 static WHITE: &[u8] = include_bytes!("textures/face-white.rgb");
 static BLACK: &[u8] = include_bytes!("textures/face-black.rgb");
 
+/// The cover in the render sits 14 mm under the shell's top edge and 3 mm over its bottom
+/// one; the model centres it (the same room above and below). This maps the model's height
+/// to the picture's: linear across the cover, the room above squeezed from 14 to 8.4 mm and
+/// the room below stretched from 3 to 8.4 mm.
+fn photo_z(z: f32) -> f32 {
+    const HALF: f32 = CUP_H / 2.0;
+    /// The cover's half height in the model, and its top and bottom in the picture.
+    const COVER: f32 = 36.5;
+    const TOP: f32 = 31.0;
+    const BOTTOM: f32 = -42.2;
+    if z > COVER {
+        TOP + (z - COVER) / (HALF - COVER) * (HALF - TOP)
+    } else if z < -COVER {
+        BOTTOM - (-COVER - z) / (HALF - COVER) * (HALF + BOTTOM)
+    } else {
+        BOTTOM + (z + COVER) / (2.0 * COVER) * (TOP - BOTTOM)
+    }
+}
+
 /// sRGB (0..1) of the face at `y` (towards the face, mm) and `z` (up, mm) from the cup's centre.
 pub fn face(black: bool, left: bool, y: f32, z: f32) -> [f32; 3] {
     let u = ((y + CUP_W / 2.0) / CUP_W).clamp(0.0, 0.999);
-    let v = ((CUP_H / 2.0 - z) / CUP_H).clamp(0.0, 0.999);
+    let v = ((CUP_H / 2.0 - photo_z(z)) / CUP_H).clamp(0.0, 0.999);
     let (x, row) = ((u * W as f32) as usize, (v * H as f32) as usize);
     let data = if black { BLACK } else { WHITE };
     let px = &data[(row * W + x) * 3..][..3];
@@ -43,7 +62,7 @@ mod tests {
         // Back is -Y, at mid height (z about 0 to -7 mm, y about -22).
         let red = |left| {
             (-28..-16).any(|y| {
-                (-12..4).any(|z| {
+                (-8..10).any(|z| {
                     let c = face(false, left, y as f32, z as f32);
                     c[0] > c[1] + 0.2
                 })

@@ -6,9 +6,11 @@
 # Needs ImageMagick and the reference renders in previews/refs/ (kept local, untracked).
 set -eu
 cd "$(dirname "$0")/.."
+# $3: ImageMagick levels, to lift the black edition's dark detail above the 5-bit steps.
 bake() {
     magick "previews/refs/$1.png" -background '#808080' -alpha remove -alpha off \
-        -crop 411x474+393+616 +repage -filter Box -resize 64x74! -depth 8 "rgb:src/textures/face-$2.rgb"
+        -crop 411x474+393+616 +repage -filter Box -resize 64x74! -level "$3" -depth 8 \
+        "rgb:src/textures/face-$2.rgb"
 }
-bake white_kef_right_cup_outer_face_ortho_scaled white
-bake black_kef_right_cup_outer_face_ortho black
+bake white_kef_right_cup_outer_face_ortho_scaled white 0%,100%
+bake black_kef_right_cup_outer_face_ortho black 0%,50%

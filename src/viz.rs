@@ -253,7 +253,8 @@ fn window(q: Quat, edition: Edition, hud: &Hud) -> Vec<String> {
         format!("colour {colour}"),
         String::new(),
         format!("{dim}arrows/hjkl  orbit{RESET}"),
-        format!("{dim}0 view  r recentre{RESET}"),
+        format!("{dim}0 reset camera{RESET}"),
+        format!("{dim}r recentre pose{RESET}"),
         format!("{dim}c colour    q quit{RESET}"),
     ]
 }
@@ -272,6 +273,24 @@ fn visible_len(s: &str) -> usize {
     n
 }
 
+/// The window's text framed in a box, every line `WINDOW` cells wide on its dark background.
+fn framed(window: &[String]) -> Vec<String> {
+    let frame = "\x1b[38;5;245m";
+    let bar = "─".repeat(WINDOW - 2);
+    let mut lines = vec![format!("{WINDOW_BG}{frame}┌{bar}┐{RESET}")];
+    for line in window {
+        // The colour sequences end with a reset: bring the background back after each.
+        let line = line.replace(RESET, &format!("{RESET}{WINDOW_BG}"));
+        let pad = (WINDOW - 4).saturating_sub(visible_len(&line));
+        lines.push(format!(
+            "{WINDOW_BG}{frame}│{RESET}{WINDOW_BG} {line}{}{frame}│{RESET}",
+            " ".repeat(pad + 1)
+        ));
+    }
+    lines.push(format!("{WINDOW_BG}{frame}└{bar}┘{RESET}"));
+    lines
+}
+
 /// `h` lines over a picture `cols` wide (drawn by `row(y, width, out)`, `width` cells of it):
 /// the window sits flush right, one line down, in front of the picture.
 fn compose(
@@ -281,15 +300,12 @@ fn compose(
     out: &mut String,
     mut row: impl FnMut(usize, usize, &mut String),
 ) {
-    let inner = WINDOW - 2;
+    let lines = framed(window);
     for y in 0..h {
-        match y.checked_sub(1).and_then(|i| window.get(i)).filter(|_| cols > WINDOW + 8) {
+        match y.checked_sub(1).and_then(|i| lines.get(i)).filter(|_| cols > WINDOW + 8) {
             Some(line) => {
                 row(y, cols - WINDOW, out);
-                // The colour sequences end with a reset: bring the background back after each.
-                let line = line.replace(RESET, &format!("{RESET}{WINDOW_BG}"));
-                let pad = inner.saturating_sub(visible_len(&line));
-                out.push_str(&format!("{WINDOW_BG} {line}{}{RESET}", " ".repeat(pad + 1)));
+                out.push_str(line);
             }
             None => row(y, cols, out),
         }

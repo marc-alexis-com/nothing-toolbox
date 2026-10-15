@@ -4,7 +4,7 @@
 //!
 //! Worn, seen from outside the head along X, each cup is a stack: a leather cushion (18 mm),
 //! an aluminium shell (12.5 mm, a rounded rectangle 78 x 90 mm), and a clear cover standing
-//! 9.5 mm proud (an oval 59 x 73 mm, 5.6 mm below the centre). Under the cover, a moulded
+//! 9.5 mm proud (an oval 59 x 73 mm, centred). Under the cover, a moulded
 //! plate with a raised "cassette" frame and two round grilles. A flat Z-shaped strip of
 //! black metal hangs each cup by the top of its cover from a slider at the end of the
 //! headband, which is nearly an arc with a pad under its top.
@@ -349,10 +349,11 @@ const CUSHION_IN: f64 = 54.0;
 const SHELL_IN: f64 = CUSHION_IN + 18.0;
 const SHELL_OUT: f64 = SHELL_IN + 12.5;
 const COVER_OUT: f64 = SHELL_OUT + 9.5;
-/// The cover and plate, centred a little below the cup's centre.
+/// The cover and plate, centred on the cup (in the render it sits 14 mm under the top edge
+/// and 3 mm over the bottom one; the texture is remapped, see `texture::photo_z`).
 const COVER_W: f64 = 59.0;
 const COVER_H: f64 = 73.0;
-const COVER_Z: f64 = -5.6;
+const COVER_Z: f64 = 0.0;
 const PLATE_OUT: f64 = SHELL_OUT + 5.5;
 /// The headband: an arc through the sliders' centre line, `BAND_R` out from the middle and
 /// `BAND_R * BAND_K` high, centred above the cups.
@@ -422,7 +423,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         false,
         faced(c.plate),
     );
-    let ff = Frame { o: [0.0, 0.0, -7.3], ..f };
+    let ff = Frame { o: [0.0, 0.0, -1.7], ..f };
     b.loft(
         &ff,
         18.0,
@@ -434,7 +435,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         false,
         faced(c.frame),
     );
-    for z in [2.4, -16.2] {
+    for z in [8.0, -10.6] {
         let gf = Frame { o: [0.0, 0.0, z], ..f };
         b.loft(
             &gf,
@@ -463,14 +464,14 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
 
     if right {
         // Button: top front of the outer face.
-        let bf = Frame { o: [0.0, 27.0, 29.5], u: [0.0, 1.0, 0.0], ..f };
+        let bf = Frame { o: [0.0, 27.7, 35.0], u: [0.0, 1.0, 0.0], ..f };
         b.loft(
             &bf,
-            6.0,
-            6.0,
-            3.0,
-            2,
-            &[(SHELL_OUT - 1.0, 0.0), (SHELL_OUT + 1.2, 0.0), (SHELL_OUT + 1.6, 0.8)],
+            9.0,
+            9.0,
+            4.5,
+            3,
+            &[(SHELL_OUT - 1.0, 0.0), (SHELL_OUT + 1.6, 0.0), (SHELL_OUT + 2.2, 1.0)],
             (false, true),
             true,
             c.control,
@@ -482,13 +483,25 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             v: [0.0, 0.0, 1.0],
             w: [0.0, -1.0, 0.0],
         };
+        // The roller sits in a dark slot, hardly proud of the edge.
         b.loft(
             &back(18.0, EDGE_X),
-            8.0,
-            13.0,
-            4.0,
+            11.0,
+            16.5,
+            5.0,
             2,
-            &[(-1.0, 0.0), (1.4, 0.0), (1.8, 0.7)],
+            &[(-0.5, 0.0), (0.15, 0.0)],
+            (false, true),
+            false,
+            c.port,
+        );
+        b.loft(
+            &back(18.0, EDGE_X),
+            7.5,
+            12.5,
+            3.5,
+            2,
+            &[(-1.0, 0.0), (0.3, 0.0), (0.6, 0.6)],
             (false, true),
             true,
             c.control,
