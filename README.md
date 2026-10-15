@@ -28,7 +28,7 @@ diagnostic logs. No phone, no app, no account.
 |---|---|
 | **Noise control** | high, mid, low, adaptive, off, transparency, and a toggle made for a keyboard shortcut |
 | **Status** | battery, worn / playing state, codec, EQ, spatial audio, low latency, multipoint… one command, or JSON |
-| **Sound** | EQ presets, and an advanced EQ you can edit band by band or load from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
+| **Sound** | EQ presets, and an advanced EQ with an interactive editor in the terminal (you hear each change as you make it), band-by-band edits, or curves loaded from a file (AutoEQ format too); bass boost, spatial audio, low-latency mode |
 | **Events** | live feed of what the headset pushes (battery, worn or not, noise mode, button…); turn the headset's button into a Linux button |
 | **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
 | **Controls** | remap the button and the wheel without the phone app |
@@ -39,13 +39,23 @@ diagnostic logs. No phone, no app, no account.
 ## A look at it
 
 <p align="center">
+  <img src="docs/images/eq-edit.png" alt="nothing eq edit: the response curve of a 7-band EQ drawn in the terminal, the selected band highlighted in red, the band list on the right" width="100%">
+  <br><sub><code>nothing eq edit</code>: the curve on the headset, redrawn and sent as you move the bands.</sub>
+</p>
+
+<p align="center">
   <img src="docs/images/status.png" alt="nothing status output" width="49%">
-  <img src="docs/images/eq.png" alt="nothing eq advanced output" width="49%">
+  <img src="docs/images/commands.png" alt="nothing anc get, battery, eq get, controls get and codec get, one after the other" width="45%">
 </p>
 
 <p align="center">
   <img src="docs/images/headtrack.png" alt="nothing headtrack --viz: a live 3D gnomon following the head" width="85%">
   <br><sub><code>nothing headtrack --viz</code>, following a real head at 9 frames per second.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/help.png" alt="nothing -h: the list of commands and global options" width="85%">
+  <br><sub>Every command, from <code>nothing -h</code>. Each one has its own <code>--help</code>, with examples.</sub>
 </p>
 
 ## Install
@@ -176,15 +186,37 @@ reports to. Bind the button back with `nothing controls set button press
 noise-anc-transparency`. Checked on a B170; with a button bound to noise control, a press only
 reports the new noise mode.
 
-**Battery in a status bar.** Waybar:
+**Noise mode and battery in a status bar.** A Waybar module that reads the headset every
+minute, and on signal 11:
 
 ```json
 "custom/headphone": {
-  "exec": "nothing battery",
-  "interval": 120,
+  "exec": "printf '%s %s' \"$(nothing anc get)\" \"$(nothing battery)\"",
+  "interval": 60,
+  "signal": 11,
   "format": "🎧 {}"
 }
 ```
+
+Send the signal after your own changes, and the bar follows the key at once:
+
+```sh
+nothing anc toggle && pkill -RTMIN+11 waybar
+```
+
+A change made on the headset itself (its button, the phone app) only shows at the next
+minute: the headset announces it (event `E003`), but only to a client holding the channel.
+For an instant update, keep `nothing watch` running and let it wake the bar:
+
+```sh
+nothing watch | grep --line-buffered NOISE_REDUCTION_LEVEL_CHANGED \
+  | while read -r _; do pkill -RTMIN+11 waybar; done
+```
+
+While it runs, `watch` owns the channel, so the module's reads go through it instead of
+reconnecting. Checked on a B170: the event reached the end of that pipeline about 20 ms after
+the mode changed. No event is sent when a mode is set to the value it already has. The
+trade-off is the one of any permanent owner, described above.
 
 **Your own EQ curve.** The advanced EQ takes up to 8 peaking bands. `nothing eq edit` draws
 the response in the terminal and sends each change to the headset as you make it: arrows move

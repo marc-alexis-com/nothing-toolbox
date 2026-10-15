@@ -291,14 +291,23 @@ pub fn render(
     // Symmetric range in steps of 6 dB, at least +-12, wide enough for the whole curve.
     let extent = curve.iter().fold(0f64, |m, d| m.max(d.abs())).max(GAIN_RANGE.1 as f64);
     let range = ((extent / 6.0).ceil() * 6.0).max(12.0);
-    let y_of = |db: f64| -> usize { (((range - db) / (2.0 * range)) * (ph - 1) as f64).round() as usize };
+    // 0 dB on a whole dot row: halfway between two rows, a curve within a hair of 0 dB
+    // would hop from one text row to the other.
+    let zero = ((ph - 1) / 2) as f64;
+    let y_of = |db: f64| -> usize { (zero - db * zero / range).round() as usize };
 
     let mut curve_bits = vec![vec![0u8; w]; h];
     let mut shape_bits = vec![vec![0u8; w]; h];
-    for (samples, bits) in [(&curve, &mut curve_bits), (&shape, &mut shape_bits)] {
+    for (samples, bits, is_shape) in [(&curve, &mut curve_bits, false), (&shape, &mut shape_bits, true)] {
         let mut prev: Option<usize> = None;
         for (px, &db) in samples.iter().enumerate() {
             let py = y_of(db.clamp(-range, range));
+            // The selected band's own shape only where it leaves 0 dB: elsewhere it would
+            // underline the whole graph.
+            if is_shape && py == y_of(0.0) {
+                prev = None;
+                continue;
+            }
             // Join to the previous column so that steep slopes stay connected.
             let (a, b) = match prev {
                 Some(p) if p < py => (p + 1, py),
@@ -507,21 +516,38 @@ mod tests {
         assert_eq!(ed.handle(Key::Char('u')), Outcome::Nothing);
     }
 
+    fn visible(s: &str) -> String {
+        let mut out = String::new();
+        let mut esc = false;
+        for c in s.chars() {
+            match (esc, c) {
+                (false, '\x1b') => esc = true,
+                (true, c) if c.is_ascii_alphabetic() => esc = false,
+                (true, _) => {}
+                (false, c) => out.push(c),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_nearly_flat_curve_stays_on_the_zero_row() {
+        // A boost is above 0 dB everywhere, by a hair far from its centre: at 30 Hz, a band
+        // at 15 kHz must not lift the curve by a text row.
+        let row = |bands: Vec<EqBand>| {
+            let frame = visible(&render(&Editor::new(bands), 0.0, 100, 30, &[], ""));
+            frame
+                .lines()
+                .position(|l| {
+                    l.chars().nth(GUTTER + 2).is_some_and(|c| ('\u{2801}'..='\u{28ff}').contains(&c))
+                })
+                .unwrap()
+        };
+        assert_eq!(row(vec![band(1000.0, 0.0, 1.0)]), row(vec![band(15_000.0, 0.5, 2.0)]));
+    }
+
     #[test]
     fn frames_fit_the_terminal() {
-        let visible = |s: &str| {
-            let mut out = String::new();
-            let mut esc = false;
-            for c in s.chars() {
-                match (esc, c) {
-                    (false, '\x1b') => esc = true,
-                    (true, c) if c.is_ascii_alphabetic() => esc = false,
-                    (true, _) => {}
-                    (false, c) => out.push(c),
-                }
-            }
-            out
-        };
         let mut ed = Editor::new(vec![
             band(60.0, 6.0, 0.5),
             band(70.0, 6.0, 0.5),

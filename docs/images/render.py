@@ -1,13 +1,12 @@
 """Renders the README images of nothing-toolbox (PNG, drawn at 2x).
 
-    python3 render.py OUT_DIR IOSEVKA_REGULAR.ttf IOSEVKA_BOLD.ttf DOTO.ttf \
-        STATUS.ansi EQ.ansi VIZ.ansi
+    python3 render.py OUT_DIR IOSEVKA_REGULAR.ttf IOSEVKA_BOLD.ttf DOTO.ttf NAME=FILE.ansi...
 
 Needs Pillow. Fonts: Iosevka (https://github.com/be5invis/Iosevka) for all text and the
 terminal screenshots, Doto (https://github.com/oliverlalan/Doto, SIL OFL) for the title.
-The *.ansi inputs are real terminal output: `nothing status` and `nothing eq advanced`
-redirected to a file, and one frame of `nothing headtrack --viz` captured with
-`tmux capture-pane -e -p`. Each file starts with its own prompt line.
+Each NAME=FILE.ansi pair renders FILE.ansi to OUT_DIR/NAME.png. The inputs are real terminal
+output captured with `tmux capture-pane -e -p`: one-shot commands preceded by their own prompt
+line, and single frames of `nothing eq edit` and `nothing headtrack --viz`.
 
 Style: monochrome ink on paper (or paper on ink), hairline rules, uppercase mono labels,
 dot-matrix only for display, and a single red LED as the one accent. Terminal shots use
@@ -19,7 +18,8 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
-OUT, IOS_R, IOS_B, DOTO, STATUS, EQ, VIZ = sys.argv[1:8]
+OUT, IOS_R, IOS_B, DOTO = sys.argv[1:5]
+SHOTS = [arg.split("=", 1) for arg in sys.argv[5:]]
 K = 2  # supersampling: every logical pixel is K device pixels
 
 # --- Shared design tokens (monochrome, one red) -----------------------------------------
@@ -250,20 +250,24 @@ OTHER = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 def parse_ansi(text):
-    """Returns lines of (char, color, bold)."""
+    """Returns lines of (char, color, bold, background or None)."""
     lines = []
     for raw in text.split("\n"):
-        out, color, bold, pos = [], AYU["fg"], False, 0
+        out, color, bold, bg, pos = [], AYU["fg"], False, None, 0
         raw = OTHER.sub(lambda m: m.group(0) if m.group(0).endswith("m") else "", raw)
         for m in SGR.finditer(raw):
-            out += [(c, color, bold) for c in raw[pos:m.start()]]
+            out += [(c, color, bold, bg) for c in raw[pos:m.start()]]
             pos = m.end()
             codes = [int(c) for c in m.group(1).split(";") if c] or [0]
             i = 0
             while i < len(codes):
                 c = codes[i]
                 if c == 0:
-                    color, bold = AYU["fg"], False
+                    color, bold, bg = AYU["fg"], False, None
+                elif 40 <= c <= 47:
+                    bg = AYU["pal"][c - 40]
+                elif c == 49:
+                    bg = None
                 elif c == 1:
                     bold = True
                 elif c == 22:
@@ -281,11 +285,25 @@ def parse_ansi(text):
                     color = "#%02x%02x%02x" % tuple(codes[i + 2:i + 5])
                     i += 4
                 i += 1
-        out += [(c, color, bold) for c in raw[pos:]]
+        out += [(c, color, bold, bg) for c in raw[pos:]]
         lines.append(out)
-    while lines and not any(ch.strip() for ch, _, _ in lines[-1]):
+    while lines and not any(ch.strip() for ch, _, _, _ in lines[-1]):
         lines.pop()
     return lines
+
+
+BRAILLE_DOTS = [(0, 0, 0x01), (0, 1, 0x02), (0, 2, 0x04), (1, 0, 0x08),
+                (1, 1, 0x10), (1, 2, 0x20), (0, 3, 0x40), (1, 3, 0x80)]
+
+
+def braille(d, x, y, w, h, bits, color):
+    """Draws a braille cell as kitty does: 2x4 round dots filling the whole cell, so that
+    curves drawn with them look continuous (font braille glyphs are much smaller)."""
+    r = min(w / 2, h / 4) * 0.36
+    for col, row, bit in BRAILLE_DOTS:
+        if bits & bit:
+            cx, cy = x + (col + 0.5) * w / 2, y + (row + 0.5) * h / 4
+            d.ellipse([(cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K], fill=color)
 
 
 def terminal(src, name, cols=None):
@@ -302,8 +320,14 @@ def terminal(src, name, cols=None):
     img = Image.new("RGB", (W * K, H * K), AYU["bg"])
     d = ImageDraw.Draw(img)
     for row, line in enumerate(lines):
-        for col, (ch, color, bold) in enumerate(line):
+        for col, (ch, color, bold, bg) in enumerate(line):
+            if bg:
+                x, y = (pad_x + col * cell) * K, (pad_y + row * lh) * K
+                d.rectangle([x, y, x + cell * K - 1, y + lh * K - 1], fill=bg)
             if ch == " ":
+                continue
+            if 0x2800 < ord(ch) <= 0x28FF:
+                braille(d, pad_x + col * cell, pad_y + row * lh, cell, lh, ord(ch) - 0x2800, color)
                 continue
             d.text(((pad_x + col * cell) * K, (pad_y + row * lh) * K), ch, font=bld if bold else reg, fill=color)
     img.save(f"{OUT}/{name}.png", optimize=True)
@@ -312,7 +336,6 @@ def terminal(src, name, cols=None):
 for th in THEMES:
     hero(th)
     architecture(th)
-terminal(STATUS, "status")
-terminal(EQ, "eq")
-terminal(VIZ, "headtrack")
+for name, src in SHOTS:
+    terminal(src, name)
 print("ok")

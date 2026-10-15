@@ -9,6 +9,8 @@
   commands (the ANC key) keep working. Tested on a B170: a change sent and read back, read
   through the socket by a second command, undone with `u`, and sent when quitting right after a
   key.
+- README: screenshots of the editor, of everyday commands and of the help; a status-bar recipe
+  that updates as soon as the headset changes mode (`watch` piped into a Waybar signal).
 
 ## 0.2.0 — 2026-10-15
 
