@@ -119,7 +119,29 @@ Other ids (earbuds and case): 2 left, 3 right, 4 case. Event `E001` has the same
 | Audiodo profile | `C05A` → `[s]` | `F05C [s]` | `1` on, `0` off; the device then pushes `E019 [profile, sdk_link]` | confirmed |
 | Codec | `C029` → `[c]` | `F01C [c]` | `0` AAC, `2` LDAC (`1` LHDC, not on the B170). **Writing reboots the headset** (~6 s). | confirmed |
 
-### 4.6 Head tracking
+### 4.6 Controls (button and wheel)
+
+`C018` (empty) → `4018`: `[n, (device, button, gesture, action) × n]`; `F003` writes the same
+layout and the headset stores it as written. **confirmed** (read, write and restore).
+
+| Field | Values on the B170 |
+|---|---|
+| device | `06` the headset (earbuds use `02` left, `03` right) |
+| button | `01` wheel, `0A` customisable button |
+| gesture | `01` single press, `07` press and hold |
+| action | `01` none, `02` play/pause, `0A` noise control off/transparency/ANC, `14` off/ANC, `15` off/transparency, `16` ANC/transparency, `0B` voice assistant, `1B` spatial audio, `1D` mute the microphone in calls, `1F` news, `20` "channel hop", `21` "Essential Space", `22` next EQ preset |
+
+The B170 reports three bindings: wheel hold, button press, button hold. The wheel's single press
+(play/pause) and its rotation (volume) are fixed and not part of the list. Which actions the
+vendor app offers for each binding: **app** (see `nothing controls actions`). Actions `1F`,
+`20` and `21` drive features of Nothing phones; whether binding `20` makes the headset send the
+magic-button event (`E014`) to a Linux client is **untested**.
+
+When the headset believes it is not worn (state bit `out`, see 4.4) and wear detection is on,
+presses on the button and the wheel seem to be ignored while the volume still works: both were
+observed together once, with one ear cup off the ear. **inferred**
+
+### 4.7 Head tracking
 
 `C058 01` starts the `E015` stream, `C058 00` stops it (answer `4058`). Each `E015` payload is
 a quaternion **x, y, z, w** as four int32 little-endian in **Q30** fixed point (divide by 2³⁰);
@@ -132,7 +154,7 @@ axis. **confirmed** (one unit, one wearer). The orientation can drift: once, aft
 streaming session, it turned steadily at about −21°/s around Z with the head still; a power
 cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 
-### 4.7 Pushed events
+### 4.8 Pushed events
 
 | Code | Event | Payload | Status |
 |---|---|---|---|
@@ -148,7 +170,7 @@ cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 | `E018` | Essential Space | probably only sent to a Nothing phone | inferred |
 | `E019` | Audiodo state | `[profile, sdk_link]` | confirmed |
 
-### 4.8 Diagnostic logs (debug class)
+### 4.9 Diagnostic logs (debug class)
 
 | Request | Answer | Status |
 |---|---|---|

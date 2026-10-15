@@ -15,7 +15,7 @@ mod signals;
 mod viz;
 
 use backend::{Backend, Events};
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use decode::AncMode;
 use hub::{Event, Opts};
 use std::io::Write;
@@ -23,6 +23,21 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 type Res<T> = Result<T, String>;
+
+const EXAMPLES: &str = "\
+Examples:
+  nothing status                         everything at a glance
+  nothing anc toggle                     noise cancelling <-> transparency
+  nothing anc set adaptive
+  nothing eq set more-bass
+  nothing controls set button hold spatial
+  nothing watch --on-magic 'playerctl play-pause'
+  nothing headtrack --viz
+  nothing gestures --dry-run --debug
+  nothing completions zsh > ~/.zfunc/_nothing
+
+Failures are also logged to $XDG_RUNTIME_DIR/nothing.log.
+Protocol notes: https://github.com/marc-alexis-com/nothing-toolbox/blob/main/docs/PROTOCOL.md";
 
 #[derive(Parser)]
 #[command(
@@ -34,20 +49,21 @@ type Res<T> = Result<T, String>;
                   commands (daemon, watch, headtrack, gestures) own it and serve the others \
                   through $XDG_RUNTIME_DIR/nothing.sock, so `nothing anc toggle` keeps working \
                   while they run.\n\nOnly the B170 has been tested. Writes are refused on any \
-                  other model unless --any-model is given."
+                  other model unless --any-model is given.",
+    after_long_help = EXAMPLES
 )]
 struct Cli {
     /// Headset address (default: $NOTHING_MAC, else the first connected Nothing headset)
-    #[arg(long, global = true)]
+    #[arg(long, global = true, value_name = "ADDRESS", help_heading = "Global options")]
     mac: Option<String>,
-    /// Allow risky commands (codec change with reboot, raw untested codes)
-    #[arg(long, global = true)]
+    /// Allow risky commands (codec change with reboot, untested raw codes)
+    #[arg(long, global = true, help_heading = "Global options")]
     dangerous: bool,
     /// Allow writes to a headset that does not report model B170
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Global options")]
     any_model: bool,
-    /// Response timeout in milliseconds
-    #[arg(long, global = true, default_value_t = 2000)]
+    /// How long to wait for each answer, in milliseconds
+    #[arg(long, global = true, default_value_t = 2000, value_name = "MS", help_heading = "Global options")]
     timeout: u64,
     #[command(subcommand)]
     command: Command,
@@ -60,24 +76,26 @@ enum Command {
         #[command(subcommand)]
         action: AncAction,
     },
-    /// Everything at a glance
+    /// Everything at a glance: model, firmware, battery, state, sound settings
     Status {
+        /// Print one JSON object instead of a table
         #[arg(long)]
         json: bool,
     },
-    /// Battery level
+    /// Battery level and charging state
     Battery {
+        /// Print {"level":N,"charging":BOOL}
         #[arg(long)]
         json: bool,
     },
     /// Model, firmware, color, serial number, paired devices
     Info,
-    /// Equaliser preset, custom and advanced curves
+    /// Equaliser: presets, custom and advanced curves
     Eq {
         #[command(subcommand)]
         action: EqAction,
     },
-    /// Bluetooth codec (changing it reboots the headset: needs --dangerous)
+    /// Bluetooth codec (changing it reboots the headset, so it needs --dangerous)
     Codec {
         #[command(subcommand)]
         action: CodecAction,
@@ -87,40 +105,48 @@ enum Command {
         #[command(subcommand)]
         action: BassAction,
     },
-    /// Spatial audio
+    /// Spatial audio, with or without head tracking
     Spatial {
         #[command(subcommand)]
         action: SpatialAction,
     },
-    /// Low-latency mode
+    /// Low-latency mode, for games and video
     Latency(SwitchArgs),
     /// Connection to two devices at once
     Multipoint(SwitchArgs),
-    /// Wear detection
+    /// Wear detection: pause when the headset is taken off (and ignore its buttons meanwhile)
     InEar(SwitchArgs),
     /// Audiodo personal sound profile
     Audiodo(SwitchArgs),
-    /// Print events pushed by the headset (battery, ANC, magic button...)
+    /// What the button and the wheel do, and remapping them
+    #[command(after_long_help = "Examples:\n  nothing controls\n  nothing controls actions\n  \
+                                 nothing controls set button hold spatial\n  \
+                                 nothing controls set wheel hold noise-cycle")]
+    Controls {
+        #[command(subcommand)]
+        action: Option<ControlsAction>,
+    },
+    /// Print the events pushed by the headset (battery, noise mode, state, magic button...)
     Watch {
-        /// Shell command to run when the magic button is pressed ($NOTHING_PAYLOAD holds the hex payload)
+        /// Run CMD through `sh -c` on each magic-button event; $NOTHING_PAYLOAD holds its payload in hex
         #[arg(long, value_name = "CMD")]
         on_magic: Option<String>,
-        /// Also print the head-tracking stream
+        /// Also print the head-tracking stream (about 9 lines per second)
         #[arg(long)]
         headtrack: bool,
-        /// Print every frame, including responses to other clients
+        /// Print every frame, including answers to other clients
         #[arg(long)]
         raw: bool,
     },
-    /// Head-tracking stream (quaternions), as text or as a 3D view
+    /// Head-tracking stream: one line per sample, or a live 3D view
     Headtrack {
-        /// Terminal 3D view (arrows/hjkl: orbit, 0: reset view, r/space: recenter, q: quit)
+        /// Terminal 3D view. Keys: arrows or hjkl orbit, 0 resets the view, r or space recenters, q quits
         #[arg(long)]
         viz: bool,
     },
     /// Media control by head gestures: nod = play/pause, shake = next track
     Gestures(GestureArgs),
-    /// Diagnostic logs (read-only)
+    /// Diagnostic logs kept by the headset (read-only)
     Logs {
         #[command(subcommand)]
         action: LogsAction,
@@ -129,16 +155,27 @@ enum Command {
     Daemon {
         #[command(subcommand)]
         action: Option<DaemonAction>,
-        /// Log connections and stream changes
+        /// Log connections, disconnections and head-tracking stream changes
         #[arg(long, short)]
         verbose: bool,
     },
     /// Send one raw request and print the answer (reads are free, writes are policed)
+    #[command(after_long_help = "Examples:\n  nothing raw C007          battery\n  \
+                                 nothing raw C01E 03       noise mode\n\n\
+                                 See docs/PROTOCOL.md for the command codes.")]
     Raw {
-        /// Command code, hex (e.g. C007)
+        /// Command code in hex, e.g. C007
         cmd: String,
-        /// Payload, hex
+        /// Payload in hex, e.g. 03 or "01 07 00"
         payload: Option<String>,
+    },
+    /// Print a shell completion script
+    #[command(after_long_help = "Examples:\n  nothing completions zsh > ~/.zfunc/_nothing\n  \
+                                 nothing completions bash > ~/.local/share/bash-completion/completions/nothing\n  \
+                                 nothing completions fish > ~/.config/fish/completions/nothing.fish")]
+    Completions {
+        /// Target shell
+        shell: clap_complete::Shell,
     },
 }
 
@@ -147,18 +184,27 @@ enum AncAction {
     /// Print the current mode
     Get,
     /// Set a mode
-    Set { mode: AncArg },
-    /// Noise cancelling <-> transparency (from any other mode: back to the last ANC level)
+    Set {
+        /// Noise mode to set
+        mode: AncArg,
+    },
+    /// Noise cancelling <-> transparency; from any other mode, back to the last cancelling level
     Toggle,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum AncArg {
+    /// Strongest noise cancelling
     High,
+    /// Medium noise cancelling
     Mid,
+    /// Light noise cancelling
     Low,
+    /// Noise cancelling that adapts to the surroundings
     Adaptive,
+    /// No noise control
     Off,
+    /// Let outside sound in
     Transparency,
 }
 
@@ -180,44 +226,60 @@ enum EqAction {
     /// Print the active preset
     Get,
     /// Select a preset
-    Set { preset: EqPreset },
-    /// Print the custom (3-band) curve
+    Set {
+        /// Preset to select
+        preset: EqPreset,
+    },
+    /// Print the custom 3-band curve
     Custom,
-    /// Print the advanced (8-band) curve
+    /// Print the advanced 8-band curve
     Advanced,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum EqPreset {
+    /// Neutral tuning
     Balanced,
+    /// Stronger low end
     MoreBass,
+    /// Brighter highs
     MoreTreble,
+    /// Voices forward
     Voice,
+    /// The custom 3-band curve
     Custom,
+    /// The advanced 8-band curve
     Advanced,
 }
 
 #[derive(Subcommand)]
 enum CodecAction {
+    /// Print the current codec
     Get,
-    /// Change the codec. The headset reboots (~6 s). Needs --dangerous.
+    /// Change the codec. The headset reboots (about 6 s). Needs --dangerous
     Set {
+        /// Codec to use
         codec: CodecArg,
     },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum CodecArg {
+    /// AAC
     Aac,
+    /// LDAC, higher bitrate; costs battery and range
     Ldac,
 }
 
 #[derive(Subcommand)]
 enum BassAction {
+    /// Print the bass boost state and level
     Get,
+    /// Turn bass boost off (the level is kept)
     Off,
-    /// Turn on, at LEVEL (1-5; 1 and 2 were tested)
+    /// Turn bass boost on
     On {
+        /// Boost level, 1 to 5 (1 and 2 were tested)
         #[arg(default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=5))]
         level: u8,
     },
@@ -225,15 +287,56 @@ enum BassAction {
 
 #[derive(Subcommand)]
 enum SpatialAction {
+    /// Print the spatial audio mode
     Get,
-    Set { mode: SpatialArg },
+    /// Set the spatial audio mode
+    Set {
+        /// Spatial audio mode
+        mode: SpatialArg,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum SpatialArg {
+    /// Plain stereo
     Off,
+    /// Fixed spatial audio
     On,
+    /// Spatial audio that follows the head
     HeadTracking,
+}
+
+#[derive(Subcommand)]
+enum ControlsAction {
+    /// Print the current bindings (default)
+    Get,
+    /// Bind an action to a control gesture
+    Set {
+        /// Which control
+        control: ControlArg,
+        /// Which gesture
+        gesture: GestureArg,
+        /// Action to bind; `nothing controls actions` lists what each control accepts
+        action: String,
+    },
+    /// List the actions each control accepts
+    Actions,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ControlArg {
+    /// The customisable button
+    Button,
+    /// The roller (its single press is fixed to play/pause)
+    Wheel,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum GestureArg {
+    /// Single press
+    Press,
+    /// Press and hold
+    Hold,
 }
 
 #[derive(Args)]
@@ -244,57 +347,67 @@ struct SwitchArgs {
 
 #[derive(Subcommand)]
 enum SwitchAction {
+    /// Print the current state
     Get,
+    /// Turn it on
     On,
+    /// Turn it off
     Off,
 }
 
 #[derive(Args)]
+#[command(after_long_help = "A gesture is a quick back-and-forth on one axis that returns to neutral; \
+                             slow movements are ignored. Use --dry-run --debug to see what is \
+                             measured, then adjust the thresholds.")]
 struct GestureArgs {
     /// Print detections without running anything
     #[arg(long)]
     dry_run: bool,
-    /// Print per-sample swing and speed, to tune the thresholds
+    /// Print the measured amplitude, speed and drift of every sample, to tune the thresholds
     #[arg(long)]
     debug: bool,
+    /// Command run on a nod
     #[arg(long, default_value = "playerctl play-pause", value_name = "CMD")]
     nod_cmd: String,
+    /// Command run on a shake
     #[arg(long, default_value = "playerctl next", value_name = "CMD")]
     shake_cmd: String,
-    /// Minimum nod amplitude, degrees peak-to-peak
-    #[arg(long)]
+    /// Minimum nod amplitude, degrees peak-to-peak [default: 10]
+    #[arg(long, value_name = "DEG")]
     nod_amplitude: Option<f64>,
-    /// Minimum nod speed, degrees per second, both ways
-    #[arg(long)]
+    /// Minimum nod speed, degrees per second, in both directions [default: 45]
+    #[arg(long, value_name = "DEG_S")]
     nod_speed: Option<f64>,
-    #[arg(long)]
+    /// Minimum shake amplitude, degrees peak-to-peak [default: 15]
+    #[arg(long, value_name = "DEG")]
     shake_amplitude: Option<f64>,
-    #[arg(long)]
+    /// Minimum shake speed, degrees per second, in both directions [default: 45]
+    #[arg(long, value_name = "DEG_S")]
     shake_speed: Option<f64>,
 }
 
 #[derive(Subcommand)]
 enum LogsAction {
-    /// List the log files kept by the headset (FC03)
+    /// List the log files kept by the headset
     List,
-    /// Whether a buried log is available, and its size (FC21)
+    /// Whether a buried log is available, and its size
     Info,
-    /// Logging state (FC09)
+    /// Logging state
     Debug,
-    /// Download the buried log, packet by packet (FC21 then FC22)
+    /// Download the buried log, packet by packet
     Dump {
         /// Write the data to FILE instead of printing a hex dump
-        #[arg(long, short)]
+        #[arg(long, short, value_name = "FILE")]
         output: Option<std::path::PathBuf>,
         /// Stop after this many packets
-        #[arg(long, default_value_t = 2048)]
+        #[arg(long, default_value_t = 2048, value_name = "N")]
         max_packets: u16,
     },
 }
 
 #[derive(Subcommand)]
 enum DaemonAction {
-    /// Tell whether a daemon owns the channel
+    /// Tell whether a daemon owns the channel, and to which headset it is connected
     Status,
 }
 
@@ -315,6 +428,12 @@ impl Ctx {
 }
 
 fn main() -> ExitCode {
+    // Behave like other Unix tools when the reader goes away (`nothing watch | head`):
+    // die quietly from SIGPIPE instead of panicking on the failed write.
+    // SAFETY: restoring the default disposition of one signal, before any thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
     let summary: Vec<String> = std::env::args().skip(1).collect();
     match run(cli) {
@@ -363,7 +482,12 @@ fn run(cli: Cli) -> Res<()> {
         Command::Multipoint(a) => switch(&one_shot(), a.action, Switch::MULTIPOINT),
         Command::InEar(a) => switch(&one_shot(), a.action, Switch::IN_EAR),
         Command::Audiodo(a) => switch(&one_shot(), a.action, Switch::AUDIODO),
+        Command::Controls { action } => controls(&one_shot(), action.unwrap_or(ControlsAction::Get)),
         Command::Raw { cmd, payload } => raw(&one_shot(), &cmd, payload.as_deref()),
+        Command::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "nothing", &mut std::io::stdout());
+            Ok(())
+        }
         Command::Logs { action } => logs(&one_shot(), action),
         Command::Daemon { action: Some(DaemonAction::Status), .. } => daemon_status(),
         Command::Daemon { action: None, verbose } => daemon(cli.mac, verbose),
@@ -707,6 +831,72 @@ fn switch(ctx: &Ctx, action: SwitchAction, s: Switch) -> Res<()> {
         }
     }
     println!("{}", (s.show)(&ctx.request(s.get, s.get_payload)?));
+    Ok(())
+}
+
+// --- Controls -----------------------------------------------------------------------------
+
+fn print_bindings(list: &[decode::Binding]) {
+    for b in list {
+        println!(
+            "{:<7} {:<6} {}",
+            decode::control_name(b.button),
+            decode::gesture_name(b.gesture),
+            decode::action_name(b.operation)
+        );
+    }
+}
+
+fn controls(ctx: &Ctx, action: ControlsAction) -> Res<()> {
+    match action {
+        ControlsAction::Get => print_bindings(&decode::bindings(&ctx.get(cmd::GET_KEY_CONFIG)?)),
+        ControlsAction::Actions => {
+            for (button, gesture) in [
+                (decode::BUTTON_CUSTOM, decode::GESTURE_PRESS),
+                (decode::BUTTON_CUSTOM, decode::GESTURE_HOLD),
+                (decode::BUTTON_WHEEL, decode::GESTURE_HOLD),
+            ] {
+                let names: Vec<String> = decode::allowed_actions(button, gesture)
+                    .iter()
+                    .map(|&a| decode::action_name(a))
+                    .collect();
+                println!(
+                    "{:<7} {:<6} {}",
+                    decode::control_name(button),
+                    decode::gesture_name(gesture),
+                    names.join(", ")
+                );
+            }
+            println!("wheel   press  play-pause (fixed)");
+        }
+        ControlsAction::Set { control, gesture, action } => {
+            let button = match control {
+                ControlArg::Button => decode::BUTTON_CUSTOM,
+                ControlArg::Wheel => decode::BUTTON_WHEEL,
+            };
+            let gesture = match gesture {
+                GestureArg::Press => decode::GESTURE_PRESS,
+                GestureArg::Hold => decode::GESTURE_HOLD,
+            };
+            let op = decode::action_code(&action).ok_or_else(|| format!("unknown action {action:?}"))?;
+            if !decode::allowed_actions(button, gesture).contains(&op) {
+                return Err(format!(
+                    "{action} is not offered on {} {} (see `nothing controls actions`)",
+                    decode::control_name(button),
+                    decode::gesture_name(gesture)
+                ));
+            }
+            // Read, change one binding, write the whole list back: the form tested on a B170.
+            let mut list = decode::bindings(&ctx.get(cmd::GET_KEY_CONFIG)?);
+            let entry = list
+                .iter_mut()
+                .find(|b| b.device == decode::DEVICE_HEADSET && b.button == button && b.gesture == gesture)
+                .ok_or("the headset did not report this control")?;
+            entry.operation = op;
+            ctx.request(cmd::SET_KEY_CONFIG, &decode::bindings_payload(&list))?;
+            print_bindings(&decode::bindings(&ctx.get(cmd::GET_KEY_CONFIG)?));
+        }
+    }
     Ok(())
 }
 
@@ -1079,4 +1269,45 @@ fn gestures(ctx: &Ctx, a: &GestureArgs) -> Res<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_is_consistent() {
+        Cli::command().debug_assert();
+    }
+
+    /// Every command, argument and value must explain itself in --help.
+    #[test]
+    fn help_is_complete() {
+        fn walk(cmd: &clap::Command, path: &str, missing: &mut Vec<String>) {
+            for sub in cmd.get_subcommands() {
+                let here = format!("{path} {}", sub.get_name());
+                if sub.get_about().is_none() {
+                    missing.push(here.clone());
+                }
+                walk(sub, &here, missing);
+            }
+            for arg in cmd.get_arguments() {
+                let id = arg.get_id().as_str();
+                if id == "help" || id == "version" {
+                    continue;
+                }
+                if arg.get_help().is_none() {
+                    missing.push(format!("{path} <{id}>"));
+                }
+                for v in arg.get_possible_values() {
+                    if arg.get_action().takes_values() && v.get_help().is_none() && id != "shell" {
+                        missing.push(format!("{path} <{id}={}>", v.get_name()));
+                    }
+                }
+            }
+        }
+        let mut missing = Vec::new();
+        walk(&Cli::command(), "nothing", &mut missing);
+        assert!(missing.is_empty(), "no help text for: {missing:?}");
+    }
 }

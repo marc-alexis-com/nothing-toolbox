@@ -31,6 +31,7 @@ diagnostic logs. No phone, no app, no account.
 | **Sound** | EQ presets, custom and advanced curves (read), bass boost, spatial audio, low-latency mode |
 | **Events** | live feed of what the headset pushes: battery, noise mode, state, Audiodo, **magic button** (run any command on press) |
 | **Head tracking** | the headset's orientation sensor as a quaternion stream, or as a live 3D view in your terminal |
+| **Controls** | remap the button and the wheel without the phone app |
 | **Gestures** | nod to play/pause, shake to skip, through any media command (`playerctl` by default) |
 | **Logs** | list and download the headset's diagnostic logs, read-only |
 | **One channel, shared** | the headset allows one connection: `nothing` keeps one owner and routes everything through it |
@@ -88,6 +89,7 @@ nothing multipoint get | on | off
 nothing in-ear     get | on | off    # wear detection
 nothing audiodo    get | on | off
 nothing codec get                    # codec set aac|ldac needs --dangerous (reboots the headset)
+nothing controls [get | set <control> <gesture> <action> | actions]
 nothing watch [--on-magic CMD] [--headtrack] [--raw]
 nothing headtrack [--viz]
 nothing gestures [--dry-run] [--debug] [--nod-cmd CMD] [--shake-cmd CMD]
@@ -97,7 +99,7 @@ nothing raw <CMD> [HEX]              # one raw request, still subject to the saf
 ```
 
 Noise modes: `high`, `mid`, `low`, `adaptive`, `off`, `transparency`. EQ presets: `balanced`,
-`more-bass`, `more-treble`, `voice`, `custom`, `advanced`. Every command has `--help`.
+`more-bass`, `more-treble`, `voice`, `custom`, `advanced`. Every command has `--help` (`-h` for a summary), with examples in the long form.
 
 ## One channel, shared
 
@@ -163,6 +165,25 @@ The command runs through `sh -c`, with the raw event payload in `$NOTHING_PAYLOA
 }
 ```
 
+**Remap the button.** The customisable button and the wheel accept the actions the vendor app
+offers for them; `nothing controls actions` lists them.
+
+```sh
+nothing controls                          # current bindings
+nothing controls set button hold spatial  # hold the button: spatial audio on/off
+nothing controls set wheel hold none      # disable press-and-hold on the wheel
+```
+
+The change is written to the headset and survives without this tool.
+
+**Shell completions.**
+
+```sh
+nothing completions zsh > ~/.zfunc/_nothing
+nothing completions bash > ~/.local/share/bash-completion/completions/nothing
+nothing completions fish > ~/.config/fish/completions/nothing.fish
+```
+
 **Head gestures.**
 
 ```sh
@@ -190,7 +211,7 @@ devices. `nothing` sorts every command code before anything leaves the computer:
 | Class | Examples | Policy |
 |---|---|---|
 | Reads | battery, state, EQ, logs list | always allowed |
-| Tested writes | noise mode, EQ preset, bass boost, spatial, latency, multipoint, wear detection | allowed: each one was written, read back and reverted on a real B170 |
+| Tested writes | noise mode, EQ preset, bass boost, spatial, latency, multipoint, wear detection, control bindings | allowed: each one was written, read back and reverted on a real B170 |
 | Risky | codec change (reboots), factory reset, unpairing, test mode, any untested code | needs `--dangerous` |
 | Firmware update | the whole OTA class | **never sent**, flashing is not implemented |
 
@@ -227,6 +248,7 @@ If you own another Nothing product and want to help, the output of `nothing stat
 | `Device or resource busy` from another tool | Something else holds the channel. Use `nothing` for both, or stop the other tool. |
 | The head-tracking view keeps turning while the head is still | Orientation drift inside the headset. Power-cycle it; gestures compensate on their own. |
 | A key binding does nothing | Look at `$XDG_RUNTIME_DIR/nothing.log`. |
+| Only the volume works on the headset; play/pause and the button do nothing | The headset probably thinks it is not worn (for example one ear cup off the ear): `nothing status` then shows `out`. Wear it properly, or turn wear detection off: `nothing in-ear off`. |
 
 ## Development
 

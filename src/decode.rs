@@ -388,6 +388,102 @@ pub fn paired_list(p: &[u8]) -> (u8, Vec<PairedDevice>) {
     (total, out)
 }
 
+// --- Controls (buttons and wheel) ----------------------------------------------------------
+
+/// One control binding of 0x4018 / 0xF003: `(device, button, gesture, operation)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Binding {
+    pub device: u8,
+    pub button: u8,
+    pub gesture: u8,
+    pub operation: u8,
+}
+
+/// The single device of a headphone (as opposed to left/right earbuds).
+pub const DEVICE_HEADSET: u8 = 6;
+pub const BUTTON_WHEEL: u8 = 1;
+pub const BUTTON_CUSTOM: u8 = 10;
+pub const GESTURE_PRESS: u8 = 1;
+pub const GESTURE_HOLD: u8 = 7;
+
+/// Actions the vendor app offers on the B170, with their wire code.
+pub const ACTIONS: [(u8, &str); 13] = [
+    (1, "none"),
+    (2, "play-pause"),
+    (10, "noise-cycle"),
+    (20, "noise-anc-off"),
+    (21, "noise-transparency-off"),
+    (22, "noise-anc-transparency"),
+    (11, "assistant"),
+    (27, "spatial"),
+    (29, "mic-mute"),
+    (31, "news"),
+    (32, "channel-hop"),
+    (33, "essential-space"),
+    (34, "eq-preset"),
+];
+
+pub fn action_name(op: u8) -> String {
+    ACTIONS
+        .iter()
+        .find(|(v, _)| *v == op)
+        .map(|(_, n)| n.to_string())
+        .unwrap_or_else(|| format!("unknown({op})"))
+}
+
+pub fn action_code(name: &str) -> Option<u8> {
+    ACTIONS.iter().find(|(_, n)| *n == name).map(|(v, _)| *v)
+}
+
+/// Which actions the vendor app lets the user pick for (button, gesture) on the B170.
+/// The wheel's single press is fixed to play/pause.
+pub fn allowed_actions(button: u8, gesture: u8) -> &'static [u8] {
+    match (button, gesture) {
+        (BUTTON_WHEEL, GESTURE_HOLD) => &[1, 10, 20, 21, 22],
+        (BUTTON_CUSTOM, GESTURE_PRESS) => &[1, 10, 20, 21, 22, 11, 27, 29, 31, 32, 34],
+        (BUTTON_CUSTOM, GESTURE_HOLD) => &[1, 10, 20, 21, 22, 11, 27, 29, 31, 32, 33, 34],
+        _ => &[],
+    }
+}
+
+pub fn control_name(button: u8) -> String {
+    match button {
+        BUTTON_WHEEL => "wheel".into(),
+        BUTTON_CUSTOM => "button".into(),
+        b => format!("control {b}"),
+    }
+}
+
+pub fn gesture_name(gesture: u8) -> String {
+    match gesture {
+        GESTURE_PRESS => "press".into(),
+        GESTURE_HOLD => "hold".into(),
+        g => format!("gesture {g}"),
+    }
+}
+
+/// 0x4018: `[n, (device, button, gesture, operation) × n]`.
+pub fn bindings(p: &[u8]) -> Vec<Binding> {
+    let n = p.first().copied().unwrap_or(0) as usize;
+    p.get(1..)
+        .unwrap_or(&[])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .take(n)
+        .map(|c| Binding { device: c[0], button: c[1], gesture: c[2], operation: c[3] })
+        .collect()
+}
+
+/// 0xF003 payload: same layout as the 0x4018 answer.
+pub fn bindings_payload(list: &[Binding]) -> Vec<u8> {
+    let mut out = vec![list.len() as u8];
+    for b in list {
+        out.extend_from_slice(&[b.device, b.button, b.gesture, b.operation]);
+    }
+    out
+}
+
 // --- Head tracking -----------------------------------------------------------------------
 
 /// 0xE015: quaternion x, y, z, w as four int32 LE in Q30 fixed point (unit norm).
@@ -501,6 +597,21 @@ mod tests {
         assert!(list[0].current && list[0].connected);
         assert_eq!(list[1].name, "abc");
         assert!(list[1].name_truncated && !list[1].connected);
+    }
+
+    #[test]
+    fn control_bindings_round_trip() {
+        // Answer of a B170: wheel hold -> none, button press -> ANC/transparency,
+        // button hold -> assistant.
+        let p = h("03 06 01 07 01 06 0a 01 16 06 0a 07 0b");
+        let list = bindings(&p);
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[1], Binding { device: 6, button: 10, gesture: 1, operation: 22 });
+        assert_eq!(action_name(list[1].operation), "noise-anc-transparency");
+        assert_eq!(bindings_payload(&list), p);
+        assert!(allowed_actions(BUTTON_CUSTOM, GESTURE_PRESS).contains(&32));
+        assert!(!allowed_actions(BUTTON_WHEEL, GESTURE_PRESS).contains(&1));
+        assert!(!allowed_actions(BUTTON_CUSTOM, GESTURE_PRESS).contains(&33));
     }
 
     #[test]
