@@ -16,14 +16,18 @@ const PANEL: usize = 30;
 pub const DEFAULT_AZIMUTH: f64 = 35.0;
 pub const DEFAULT_ELEVATION: f64 = 20.0;
 
-/// Orbit camera: azimuth about the vertical (Z), then elevation. The camera looks along +Y,
-/// at the face (the front of the head is -Y, see `model.rs`).
+/// Orbit camera: azimuth about the vertical (Z), then elevation; at 0/0 it faces the wearer.
+/// The picture is a mirror, like a webcam preview: the wearer's right is on the right of the
+/// screen and the headset turns the same way as the head. Flipping Y puts the camera, which
+/// looks along +Y from -Y in view space, in front of the face (+Y).
 fn view_matrix(az_deg: f64, el_deg: f64) -> Mat3 {
     let (a, e) = (az_deg.to_radians(), el_deg.to_radians());
     let (ca, sa, ce, se) = (a.cos(), a.sin(), e.cos(), e.sin());
     let raz = [[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]];
     let rel = [[1.0, 0.0, 0.0], [0.0, ce, -se], [0.0, se, ce]];
-    matmul(&rel, &raz)
+    let mirror = [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]];
+    // Mirror before the elevation, so that a positive elevation still looks from above.
+    matmul(&rel, &matmul(&mirror, &raz))
 }
 
 fn apply(m: &Mat3, p: V3) -> V3 {
@@ -359,9 +363,20 @@ mod tests {
     }
 
     #[test]
+    fn the_view_is_a_mirror_seen_from_above() {
+        // Default camera, head at rest: the face is turned towards the camera, the wearer's
+        // right ear is on the right of the screen, and the top of the head is nearer the
+        // camera than the bottom (seen from above).
+        let m = view_matrix(0.0, DEFAULT_ELEVATION);
+        assert!(apply(&m, [0.0, 1.0, 0.0])[1] < -0.9);
+        assert!(apply(&m, [1.0, 0.0, 0.0])[0] > 0.99);
+        assert!(apply(&m, [0.0, 0.0, 1.0])[1] < 0.0);
+    }
+
+    #[test]
     fn nearer_parts_hide_farther_ones() {
-        // Seen from the right (camera on -X), the red dot on the right cup is visible; seen
-        // from the left, the left cup hides it.
+        // From the wearer's right the red dot on the right cup shows; from the left, the left
+        // cup hides it.
         let red = |p: &Picture| p.px.iter().flatten().filter(|c| c[0] > 0.5 && c[1] < 0.2).count();
         assert!(red(&rasterize(ID, Edition::White, 80, 60, 90.0, 0.0)) > 0);
         assert_eq!(red(&rasterize(ID, Edition::White, 80, 60, -90.0, 0.0)), 0);

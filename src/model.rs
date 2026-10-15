@@ -1,11 +1,10 @@
 //! The headset drawn by `headtrack --viz`: a triangle mesh of a Nothing Headphone (1), its
 //! proportions taken from product photos (approximate), in the head-tracking frame.
 //!
-//! Frame: Z up, X along the ear-to-ear axis, Y front to back; the origin is the centre of the
-//! head, so that rotations turn the headset about it. Which end of X is the left ear is
-//! inferred, not measured: in the recording of `src/testdata/b170-gestures.txt` the first nod
-//! goes to positive roll, and a nod starts downwards, which puts +X on the wearer's left and
-//! +Y at the back (a right-handed frame).
+//! Frame: Z up, +X towards the wearer's right ear, +Y towards the face (right-handed); the
+//! origin is the centre of the head, so that rotations turn the headset about it. Measured on
+//! a B170: from rest, looking down turns the head about X by a negative angle (-15 to -20 deg),
+//! which puts +Y in front.
 
 pub type V3 = [f64; 3];
 
@@ -155,8 +154,8 @@ pub fn headset(edition: Edition) -> Vec<Tri> {
         // The arm from the cup to the headband.
         b.cuboid([x(1.03) - 0.04, -0.07, 0.48], [x(1.03) + 0.04, 0.07, 1.02], c.metal, 0.8);
     }
-    // Right cup (-X, see the module notes): a red dot near the top of the outer face.
-    b.prism(&circle(0.085, 16), -0.14, 0.30, -(CUP_OUT + 0.03), -(CUP_OUT + 0.05), ACCENT, 0.0);
+    // Right cup (+X, see the module notes): a red dot near the top of the outer face.
+    b.prism(&circle(0.085, 16), -0.14, 0.30, CUP_OUT + 0.03, CUP_OUT + 0.05, ACCENT, 0.0);
     let arc: Vec<(f64, f64)> = (0..=48)
         .map(|i| {
             let t = std::f64::consts::PI * i as f64 / 48.0;
@@ -188,6 +187,6 @@ mod tests {
         assert!((lo[0] + hi[0]).abs() < 0.05, "x {lo:?} {hi:?}");
         assert!(hi[2] > 1.85 && lo[2] > -0.6, "z {lo:?} {hi:?}");
         // The accent is on the right cup only.
-        assert!(tris.iter().filter(|t| t.color == ACCENT).all(|t| t.v.iter().all(|v| v[0] < 0.0)));
+        assert!(tris.iter().filter(|t| t.color == ACCENT).all(|t| t.v.iter().all(|v| v[0] > 0.0)));
     }
 }

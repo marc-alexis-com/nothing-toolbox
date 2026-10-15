@@ -176,7 +176,9 @@ arrive right after the stop. **confirmed**
 
 Axes, from a labelled recording of a person wearing the headset: nodding rotates about **X**
 (±30–50°), shaking the head about **Z**; slow tilts towards a shoulder barely register on any
-axis. **confirmed** (one unit, one wearer). The orientation can drift: once, after a long
+axis. Looking down from rest turns the head about X by a negative angle (−15 to −20° measured),
+so with Z up the frame is right-handed with **+X towards the right ear and +Y towards the
+face**. **confirmed** (one unit, one wearer). The orientation can drift: once, after a long
 streaming session, it turned steadily at about −21°/s around Z with the head still; a power
 cycle of the headset removed it. **confirmed** (seen once, cause unknown)
 
