@@ -95,6 +95,7 @@ nothing battery [--json]
 nothing info                         # model, firmware, color, serial number, paired devices
 nothing eq get | set <preset> | custom | advanced
 nothing eq load <file> | save [file] | band <Hz> <dB> [--q Q] | reset
+nothing eq edit [file]                 # interactive editor, hear each change as you make it
 nothing bass get | on [LEVEL] | off
 nothing spatial get | set off|on|head-tracking
 nothing latency    get | on | off
@@ -185,9 +186,15 @@ reports the new noise mode.
 }
 ```
 
-**Your own EQ curve.** The advanced EQ takes up to 8 peaking bands. Edit it band by band, or
-load a whole curve, for example an [AutoEQ](https://github.com/jaakkopasanen/AutoEq)
-`ParametricEQ.txt` (peaking filters only, at most 8):
+**Your own EQ curve.** The advanced EQ takes up to 8 peaking bands. `nothing eq edit` draws
+the response in the terminal and sends each change to the headset as you make it: arrows move
+the selected band (gain up and down, frequency left and right), `[` `]` change its width,
+`a`/`x` add or delete a band, `u` puts everything back as it was, `s` saves the curve to a
+file, `q` quits and keeps it. Other `nothing` commands keep working meanwhile.
+
+Or edit it band by band, or load a whole curve, for example an
+[AutoEQ](https://github.com/jaakkopasanen/AutoEq) `ParametricEQ.txt` (peaking filters only, at
+most 8):
 
 ```sh
 nothing eq save ~/eq/flat.txt          # keep the current curve
@@ -311,6 +318,7 @@ The source is small and dependency-light (`clap`, `clap_complete`, `libc`):
 | `src/cmd.rs` | command codes and the safety policy |
 | `src/decode.rs` | payload decoders, tested against real captures |
 | `src/eqfile.rs` | advanced EQ: limits, the vendor app's total-gain computation, file formats |
+| `src/eqedit.rs` | `eq edit`: editor state, keys, and the braille drawing of the response |
 | `src/logs.rs` | diagnostic log decoders |
 | `src/mac.rs` | finding the connected headset |
 | `src/rfcomm.rs` | RFCOMM socket over libc |

@@ -169,6 +169,11 @@ impl RawTerminal {
         }
     }
 
+    /// False when standard input is not a terminal (no keys will ever be read).
+    pub fn is_interactive(&self) -> bool {
+        self.saved.is_some()
+    }
+
     /// Non-blocking read of pending key bytes.
     pub fn keys(&self) -> Vec<u8> {
         if self.saved.is_none() {

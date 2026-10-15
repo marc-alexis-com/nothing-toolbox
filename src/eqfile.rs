@@ -110,6 +110,17 @@ fn response(cf: &[f64; 6], w: f64) -> Complex {
     ((n.0 * d.0 + n.1 * d.1) / den, (n.1 * d.0 - n.0 * d.1) / den)
 }
 
+/// Combined response in dB at `freq`, with the values as sent (no rounding): what `eq edit`
+/// draws. It assumes the headset runs the same filters as the app models, which is inferred.
+pub fn response_db(bands: &[EqBand], freq: f64) -> f64 {
+    let w = freq * TWO_PI / SAMPLE_RATE;
+    let h = bands
+        .iter()
+        .map(|b| coefficients(b.freq as f64, b.gain as f64, b.q as f64))
+        .fold((1.0, 0.0), |h, cf| cmul(h, response(&cf, w)));
+    (h.0 * h.0 + h.1 * h.1).sqrt().max(1e-12).log10() * 20.0
+}
+
 /// Highest point of the combined response, floored at 0 dB, computed exactly as the vendor
 /// app does (`EQAlgorithm.getCoordinate`): frequencies and gains rounded to whole numbers,
 /// RBJ peaking filters at 44.1 kHz cascaded as complex products, evaluated on a 300-point
@@ -306,6 +317,16 @@ mod tests {
     }
 
     #[test]
+    fn drawn_response() {
+        let band = |freq, gain, q| EqBand { filter: 1, freq, gain, q };
+        assert!(response_db(&[band(1000.0, 0.0, 3.0)], 50.0).abs() < 1e-9);
+        assert!((response_db(&[band(1000.0, 4.5, 1.0)], 1000.0) - 4.5).abs() < 1e-6);
+        assert!((response_db(&[band(1000.0, -2.5, 1.0)], 1000.0) + 2.5).abs() < 1e-6);
+        assert!(response_db(&[band(1000.0, 6.0, 1.0)], 20.0) < 0.1);
+        assert_eq!(response_db(&[], 1000.0), 0.0);
+    }
+
+    #[test]
     fn total_gain_only_when_the_curve_exceeds_six_db() {
         let band = |freq, gain| EqBand { filter: 1, freq, gain, q: 1.0 };
         let fw = Some("1.0.1.81");
@@ -332,7 +353,7 @@ mod tests {
         assert!(validate(&mut [band(1000.0, 7.0, 1.0)]).is_err());
         assert!(validate(&mut [band(10.0, 0.0, 1.0)]).is_err());
         assert!(validate(&mut [band(1000.0, 0.0, 20.0)]).is_err());
-        assert!(validate(&mut vec![band(1000.0, 0.0, 1.0); 9]).is_err());
+        assert!(validate(&mut [band(1000.0, 0.0, 1.0); 9]).is_err());
         assert!(validate(&mut []).is_err());
     }
 

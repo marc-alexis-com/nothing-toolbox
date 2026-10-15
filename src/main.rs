@@ -4,6 +4,7 @@
 mod backend;
 mod cmd;
 mod decode;
+mod eqedit;
 mod eqfile;
 mod frame;
 mod headtrack;
@@ -266,6 +267,25 @@ enum EqAction {
     },
     /// Restore the vendor app's factory curve (three flat bands) and turn it on
     Reset,
+    /// Edit the advanced curve interactively, hearing each change as it is made
+    #[command(after_long_help = "Keys:\n  \
+        up/down, k/j       gain of the selected band (0.5 dB steps)\n  \
+        left/right, h/l    frequency (1/12 octave); H/L or shift+arrows: 1/3 octave\n  \
+        [ ]                width (Q), in quarter-octave steps\n  \
+        tab/shift+tab, 1-8 select a band\n  \
+        a / x              add a flat band / delete the selected one\n  \
+        0                  set the selected band flat\n  \
+        u                  undo everything: the starting curve, and the preset if it was in use\n  \
+        s                  save the curve to FILE\n  \
+        q, Ctrl+C          quit, keeping the curve on the headset\n\n\
+        Each change is sent 0.3 s after the last key and read back. The curve found at start is\n\
+        saved to $XDG_STATE_HOME/nothing/eq-previous.txt before the first change. The drawn\n\
+        response assumes the headset runs the filters the vendor app models (inferred).")]
+    Edit {
+        /// Where `s` saves the curve
+        #[arg(default_value_os_t = state_dir().join("eq-edited.txt"))]
+        file: std::path::PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -506,6 +526,9 @@ fn run(cli: Cli) -> Res<()> {
         Command::Status { json } => status(&one_shot(), json),
         Command::Battery { json } => battery(&one_shot(), json),
         Command::Info => info(&one_shot()),
+        Command::Eq { action: EqAction::Edit { file } } => {
+            long_running(cli.mac, opts, timeout, |ctx| eq_edit(ctx, &file))
+        }
         Command::Eq { action } => eq(&one_shot(), action),
         Command::Codec { action } => codec(&one_shot(), action),
         Command::Bass { action } => bass(&one_shot(), action),
@@ -790,6 +813,7 @@ fn eq(ctx: &Ctx, action: EqAction) -> Res<()> {
             write_curve(ctx, bands, false)?;
         }
         EqAction::Reset => write_curve(ctx, eqfile::factory(), false)?,
+        EqAction::Edit { .. } => unreachable!("run() starts the editor as the channel owner"),
         EqAction::Advanced => {
             let eq = decode::advanced_eq(&ctx.request(cmd::GET_ADVANCED_EQ, &[0])?)
                 .ok_or("malformed advanced EQ")?;
@@ -812,6 +836,16 @@ fn state_dir() -> std::path::PathBuf {
         .join("nothing")
 }
 
+/// Saves `eq` to $XDG_STATE_HOME/nothing/eq-previous.txt, before it is overwritten.
+fn backup_curve(eq: &decode::Eq) -> Res<std::path::PathBuf> {
+    let dir = state_dir();
+    let backup = dir.join("eq-previous.txt");
+    std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(&backup, eqfile::format(eq)))
+        .map_err(|e| format!("cannot save the current curve to {}: {e}", backup.display()))?;
+    Ok(backup)
+}
+
 /// Validates and writes an advanced curve, after saving the current one so it can be restored.
 /// Writing the bands also turns the advanced EQ on (observed on a B170).
 fn write_curve(ctx: &Ctx, bands: Vec<decode::EqBand>, dry_run: bool) -> Res<()> {
@@ -825,12 +859,7 @@ fn write_curve(ctx: &Ctx, bands: Vec<decode::EqBand>, dry_run: bool) -> Res<()> 
         println!("payload: [{}]", frame::hex(&eqfile::payload(&eq)));
         return Ok(());
     }
-    let previous = read_curve(ctx)?;
-    let dir = state_dir();
-    let backup = dir.join("eq-previous.txt");
-    std::fs::create_dir_all(&dir)
-        .and_then(|()| std::fs::write(&backup, eqfile::format(&previous)))
-        .map_err(|e| format!("cannot save the current curve to {}: {e}", backup.display()))?;
+    let backup = backup_curve(&read_curve(ctx)?)?;
     ctx.request(cmd::SET_ADVANCED_EQ, &eqfile::payload(&eq))?;
     let now = read_curve(ctx)?;
     println!("{now}");
@@ -842,6 +871,109 @@ fn write_curve(ctx: &Ctx, bands: Vec<decode::EqBand>, dry_run: bool) -> Res<()> 
         decode::switch(&ctx.get(cmd::GET_ADVANCED_EQ_MODE)?),
         backup.display()
     );
+    Ok(())
+}
+
+/// Pause between the last key and sending the curve, so that a held key sends once.
+const EDIT_SEND_DELAY: Duration = Duration::from_millis(300);
+const EDIT_RETRY_DELAY: Duration = Duration::from_secs(2);
+
+fn eq_edit(ctx: &Ctx, file: &std::path::Path) -> Res<()> {
+    let term = viz::RawTerminal::enter();
+    if !term.is_interactive() {
+        return Err("eq edit needs a terminal; use eq band or eq load in scripts".into());
+    }
+    let firmware = ctx.get(cmd::GET_FIRMWARE).ok().map(|p| decode::text(&p));
+    let start = read_curve(ctx)?;
+    let was_on = decode::switch(&ctx.get(cmd::GET_ADVANCED_EQ_MODE)?) == "on";
+    let mut ed = eqedit::Editor::new(start.bands.clone());
+    let mut backed_up = false;
+    let mut send_at: Option<Instant> = None;
+    // Set by `u` when the preset was in use at start: switch the advanced EQ back off.
+    let mut back_to_preset = false;
+    let mut advanced_on = was_on;
+    let mut headset = String::from("headset    as found");
+    let mut status = String::new();
+    let mut redraw = true;
+    let mut size = (0, 0);
+
+    let send = |bands: &[decode::EqBand], back_to_preset: bool, backed_up: &mut bool| -> Res<()> {
+        if !*backed_up {
+            backup_curve(&start)?;
+            *backed_up = true;
+        }
+        let (eq, _) = eqfile::curve(bands.to_vec(), firmware.as_deref())?;
+        ctx.request(cmd::SET_ADVANCED_EQ, &eqfile::payload(&eq))?;
+        if read_curve(ctx)?.bands != eq.bands {
+            return Err("the headset reports a different curve than the one sent".into());
+        }
+        if back_to_preset {
+            ctx.request(cmd::SET_ADVANCED_EQ_MODE, &[0])?;
+        }
+        Ok(())
+    };
+
+    while !signals::stop_requested() {
+        for key in eqedit::parse_keys(&term.keys()) {
+            match ed.handle(key) {
+                eqedit::Outcome::Nothing => {}
+                eqedit::Outcome::Changed => {
+                    send_at = Some(Instant::now() + EDIT_SEND_DELAY);
+                    back_to_preset = false;
+                }
+                eqedit::Outcome::Reverted => {
+                    send_at = Some(Instant::now() + EDIT_SEND_DELAY);
+                    back_to_preset = !was_on;
+                }
+                eqedit::Outcome::Save => {
+                    let eq = decode::Eq { profile: Some(0), total_gain: 0.0, bands: ed.bands.clone() };
+                    status = match file
+                        .parent()
+                        .map_or(Ok(()), std::fs::create_dir_all)
+                        .and_then(|()| std::fs::write(file, eqfile::format(&eq)))
+                    {
+                        Ok(()) => format!("saved to {}", file.display()),
+                        Err(e) => format!("cannot save to {}: {e}", file.display()),
+                    };
+                }
+                eqedit::Outcome::Quit => signals::request_stop(),
+            }
+            redraw = true;
+        }
+        if send_at.is_some_and(|t| Instant::now() >= t) {
+            match send(&ed.bands, back_to_preset, &mut backed_up) {
+                Ok(()) => {
+                    send_at = None;
+                    advanced_on = !back_to_preset;
+                    headset = String::from("headset    up to date");
+                    status.clear();
+                }
+                Err(e) => {
+                    send_at = Some(Instant::now() + EDIT_RETRY_DELAY);
+                    headset = String::from("headset    not updated, retrying");
+                    status = e;
+                }
+            }
+            redraw = true;
+        }
+        let now = viz::terminal_size();
+        if redraw || now != size {
+            (size, redraw) = (now, false);
+            let info = [
+                headset.clone(),
+                format!("mode       {}", if advanced_on { "advanced EQ" } else { "preset" }),
+            ];
+            let total = eqfile::total_gain(&ed.bands, firmware.as_deref());
+            print!("{}", eqedit::render(&ed, total, size.0, size.1, &info, &status));
+            let _ = std::io::stdout().flush();
+        }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    drop(term);
+    // Quitting right after a key: send what is on screen rather than drop it.
+    if send_at.is_some() {
+        send(&ed.bands, back_to_preset, &mut backed_up)?;
+    }
     Ok(())
 }
 

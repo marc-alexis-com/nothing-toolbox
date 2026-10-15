@@ -264,7 +264,7 @@ pub fn in_ear_detection(p: &[u8]) -> Option<bool> {
     extra_features(p).into_iter().find(|(id, _)| *id == 1).map(|(_, v)| v != 0)
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EqBand {
     pub filter: u8,
     pub gain: f32,
