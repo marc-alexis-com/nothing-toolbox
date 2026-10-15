@@ -435,8 +435,13 @@ mod tests {
 
     /// A PNG file of `img`, to look at the renderer's output.
     pub fn png(img: &Rgb8) -> Vec<u8> {
-        let mut raw = Vec::with_capacity((img.w * 3 + 1) * img.h);
-        for row in img.px.chunks(img.w * 3) {
+        png_of(img.w, img.h, 3, &img.px)
+    }
+
+    /// A PNG file of `w` x `h` pixels of `channels` bytes (3: RGB, 4: RGBA).
+    fn png_of(w: usize, h: usize, channels: usize, px: &[u8]) -> Vec<u8> {
+        let mut raw = Vec::with_capacity((w * channels + 1) * h);
+        for row in px.chunks(w * channels) {
             raw.push(0);
             raw.extend_from_slice(row);
         }
@@ -449,11 +454,11 @@ mod tests {
             out.extend(crc32(&body).to_be_bytes());
         };
         let mut ihdr = Vec::new();
-        ihdr.extend((img.w as u32).to_be_bytes());
-        ihdr.extend((img.h as u32).to_be_bytes());
-        ihdr.extend([8, 2, 0, 0, 0]);
+        ihdr.extend((w as u32).to_be_bytes());
+        ihdr.extend((h as u32).to_be_bytes());
+        ihdr.extend([8, if channels == 4 { 6 } else { 2 }, 0, 0, 0]);
         chunk(b"IHDR", &ihdr);
-        chunk(b"IDAT", &zlib::compress(&raw, img.w * 3 + 1));
+        chunk(b"IDAT", &zlib::compress(&raw, w * channels + 1));
         chunk(b"IEND", &[]);
         out
     }
@@ -486,6 +491,52 @@ mod tests {
         let big = upscale(&img, 2);
         assert_eq!((big.w, big.h), (4, 2));
         assert_eq!(big.px, [1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6, 1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6]);
+    }
+
+    /// The headset alone, RGBA: no backdrop, no floor, drawn `ss` x `ss` times finer and
+    /// averaged down, coverage becoming alpha.
+    fn cutout(q: Quat, edition: Edition, w: usize, h: usize, az: f64, el: f64, ss: usize) -> Vec<u8> {
+        let (sw, sh) = (w * ss, h * ss);
+        let cam = Camera::new(sw, sh, az, el);
+        let m = mat32(&matmul(&viz::view_matrix(az, el), &mat_from_quat(q)));
+        let mut fb = Frame { color: vec![[0.0; 3]; sw * sh], depth: vec![0.0; sw * sh] };
+        draw_model(&transformed(&m, mesh(edition), &cam, false), &cam, &mut fb);
+        let mut px = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            for x in 0..w {
+                let (mut sum, mut n) = ([0.0f32; 3], 0);
+                for dy in 0..ss {
+                    for dx in 0..ss {
+                        let i = (y * ss + dy) * sw + x * ss + dx;
+                        if fb.depth[i] != 0.0 {
+                            (0..3).for_each(|k| sum[k] += fb.color[i][k]);
+                            n += 1;
+                        }
+                    }
+                }
+                let c = sum.map(|v| (v / n.max(1) as f32).max(0.0).powf(1.0 / 2.2).min(1.0) * 255.0);
+                px.extend(c.map(|v| v.round() as u8));
+                px.push((255 * n / (ss * ss)) as u8);
+            }
+        }
+        px
+    }
+
+    /// Writes $NOTHING_PREVIEW_DIR/frame-NNN.png: the white headset alone, on a transparent
+    /// background, turning once on itself in N steps (the README's banner and diagram).
+    /// `cargo test --release spin -- --ignored`, with W, H and N to size it.
+    #[test]
+    #[ignore]
+    fn spin() {
+        let dir = std::env::var("NOTHING_PREVIEW_DIR").expect("NOTHING_PREVIEW_DIR");
+        let size = |var: &str, default| std::env::var(var).map_or(default, |v| v.parse().unwrap());
+        let (w, h, n) = (size("W", 760), size("H", 640), size("N", 40));
+        for i in 0..n {
+            let a = std::f64::consts::TAU * i as f64 / n as f64;
+            let q = [0.0, 0.0, (a / 2.0).sin(), (a / 2.0).cos()];
+            let px = cutout(q, Edition::White, w, h, 0.0, 12.0, 3);
+            std::fs::write(format!("{dir}/frame-{i:03}.png"), png_of(w, h, 4, &px)).unwrap();
+        }
     }
 
     /// Writes previews to $NOTHING_PREVIEW_DIR: both editions, several cameras, and poses

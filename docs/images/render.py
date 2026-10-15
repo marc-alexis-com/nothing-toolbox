@@ -6,8 +6,10 @@ Needs Pillow. Fonts: Iosevka (https://github.com/be5invis/Iosevka) for all text 
 terminal screenshots, Doto (https://github.com/oliverlalan/Doto, SIL OFL) for the title.
 Each NAME=FILE.ansi pair renders FILE.ansi to OUT_DIR/NAME.png; NAME=DIR renders the
 DIR/frame-*.ansi files, in order, to the animation OUT_DIR/NAME.gif (about 9.5 frames a second,
-the head-tracking rate). With HEADSET=picture.ppm in the environment, the banner and the
-architecture diagram show that picture of the 3D headset instead of the LED-matrix drawing. The inputs are real terminal
+the head-tracking rate). With HEADSET in the environment, the banner and the architecture
+diagram show the 3D headset instead of the LED-matrix drawing: one picture (a file), or turning
+on itself (a directory of RGBA frame-*.png, from `cargo test --release spin -- --ignored`), as
+animated PNGs. The inputs are real terminal
 output captured with `tmux capture-pane -e -p`: one-shot commands preceded by their own prompt
 line, and single frames of `nothing eq edit` and `nothing headtrack --viz`.
 
@@ -27,17 +29,51 @@ SHOTS = [arg.split("=", 1) for arg in sys.argv[5:]]
 HEADSET = os.environ.get("HEADSET")
 
 
-def headset(img, x0, y0, w, h):
-    """Pastes the 3D headset picture, centred in the w x h box at (x0, y0): enlarged by a whole
-    factor (crisp pixels), or reduced to fit."""
-    pic = Image.open(HEADSET).convert("RGB")
-    k = min(w * K / pic.width, h * K / pic.height)
-    if k >= 1:
-        k = int(k)  # whole factors keep the pixels square
-        pic = pic.resize((pic.width * k, pic.height * k), Image.NEAREST)
+def headset_frames():
+    """The 3D headset: one picture (HEADSET=file), or the frames of an animation
+    (HEADSET=directory of frame-*.png, RGBA), all cropped to the headset's widest extent."""
+    if os.path.isdir(HEADSET):
+        files = sorted(os.path.join(HEADSET, f) for f in os.listdir(HEADSET) if f.startswith("frame-"))
     else:
-        pic = pic.resize((round(pic.width * k), round(pic.height * k)), Image.LANCZOS)
-    img.paste(pic, (x0 * K + (w * K - pic.width) // 2, y0 * K + (h * K - pic.height) // 2))
+        files = [HEADSET]
+    pics = [Image.open(f).convert("RGBA") for f in files]
+    boxes = [p.getbbox() or (0, 0, p.width, p.height) for p in pics]
+    box = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+    return [p.crop(box) for p in pics]
+
+
+def headset(frames, img, x0, y0, w, h):
+    """The banner or diagram `img`, once per headset frame, with the frame fitted into the
+    w x h box at (x0, y0) (pixel art enlarged by a whole factor, anything else resampled)."""
+    out = []
+    for pic in frames:
+        k = min(w * K / pic.width, h * K / pic.height)
+        if k >= 1 and len(frames) == 1:
+            k = int(k)  # whole factors keep the pixels square
+            pic = pic.resize((pic.width * k, pic.height * k), Image.NEAREST)
+        else:
+            pic = pic.resize((round(pic.width * k), round(pic.height * k)), Image.LANCZOS)
+        frame = img.copy()
+        frame.paste(pic, (x0 * K + (w * K - pic.width) // 2, y0 * K + (h * K - pic.height) // 2), pic)
+        out.append(frame)
+    return out
+
+
+def save(frames, path):
+    """One PNG, or an animated PNG (the headset turning, about 12 frames a second)."""
+    if len(frames) == 1:
+        frames[0].save(path, optimize=True)
+        return
+    # One 256-colour palette for every frame (the page is grey, the headset white): a few times
+    # smaller than full colour, with no visible difference.
+    sample = Image.new("RGB", (frames[0].width, frames[0].height * 4))
+    for i in range(4):
+        sample.paste(frames[i * len(frames) // 4], (0, frames[0].height * i))
+    palette = sample.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+    frames = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames]
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=80, loop=0, optimize=True)
+
+
 K = 2  # supersampling: every logical pixel is K device pixels
 
 # --- Shared design tokens (monochrome, one red) -----------------------------------------
@@ -148,9 +184,7 @@ def hero(theme):
     # LED matrix with the headphone
     pitch, cols, rows = 10, 38, 32
     gx, gy = 40, 40
-    if HEADSET:
-        headset(img, gx, gy, cols * pitch, rows * pitch)
-    else:
+    if not HEADSET:
         dot_matrix(img, gx, gy, cols, rows, pitch, theme, red=True)
 
     # right column
@@ -182,7 +216,8 @@ def hero(theme):
         y += 34
     d.line([(x * K, y * K), ((W - 40) * K, y * K)], fill=t["hair"], width=K)
 
-    img.save(f"{OUT}/hero-{theme}.png", optimize=True)
+    frames = headset(HEADSET_FRAMES, img, gx, gy, cols * pitch, rows * pitch) if HEADSET else [img]
+    save(frames, f"{OUT}/hero-{theme}.png")
 
 
 # --- Architecture -------------------------------------------------------------------------
@@ -235,9 +270,7 @@ def architecture(theme):
 
     # 03 headset, with a small LED matrix of the headphone
     card(d, 690, 66, 230, 212, t)
-    if HEADSET:
-        headset(img, 718, 74, round(38 * 4.6), round(32 * 4.6))
-    else:
+    if not HEADSET:
         dot_matrix(img, 718, 74, 38, 32, 4.6, theme)
     label(706, 230, "RFCOMM CHANNEL 15")
     # the single connection marker: one red dot
@@ -260,7 +293,8 @@ def architecture(theme):
     dotted(d, 805, y, 805, 284, t["muted"], pitch=8, r=1.3)
     label(40, 384, "NO OWNER RUNNING  →  THE COMMAND OPENS THE CHANNEL ITSELF, FOR A FEW HUNDRED MS")
 
-    img.save(f"{OUT}/architecture-{theme}.png", optimize=True)
+    frames = headset(HEADSET_FRAMES, img, 718, 74, round(38 * 4.6), round(32 * 4.6)) if HEADSET else [img]
+    save(frames, f"{OUT}/architecture-{theme}.png")
 
 
 # --- Terminal screenshots, kitty-like -------------------------------------------------------
@@ -383,6 +417,7 @@ def terminal_image(src, cols=None):
     return img
 
 
+HEADSET_FRAMES = headset_frames() if HEADSET else None
 for th in THEMES:
     hero(th)
     architecture(th)
