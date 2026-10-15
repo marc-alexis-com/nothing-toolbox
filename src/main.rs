@@ -18,6 +18,7 @@ mod model;
 mod ps2;
 mod rfcomm;
 mod signals;
+mod texture;
 mod viz;
 mod zlib;
 

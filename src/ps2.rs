@@ -10,6 +10,7 @@ use crate::headtrack::{mat_from_quat, matmul, Mat3, Quat};
 use crate::kitty::Rgb8;
 use crate::lowpoly::{self, Material, Pattern, Tri};
 use crate::model::Edition;
+use crate::texture;
 use crate::viz;
 use std::sync::OnceLock;
 
@@ -167,51 +168,14 @@ fn environment(r: V, cam: &Camera) -> V {
     add(c, scale([1.2, 1.15, 1.05], k))
 }
 
-/// Holes and grilles moulded in the plate under a cover, in millimetres on the cup's side
-/// (y towards the face, z up): (y, z, radius).
-const PLATE_HOLES: [(f32, f32, f32); 9] = [
-    (-10.8, 10.8, 1.3),
-    (8.8, 15.0, 1.1),
-    (15.9, 14.0, 1.1),
-    (-14.0, -29.4, 1.2),
-    (13.6, -27.5, 2.2),
-    (-7.0, -28.5, 0.6),
-    (-4.0, -30.0, 0.6),
-    (19.5, 2.0, 0.6),
-    (19.5, -2.5, 0.6),
-];
-
-/// How much light the procedural detail lets through at model point `p`.
-fn pattern(kind: Pattern, p: V) -> f32 {
-    let (y, z) = (p[1] * 90.0, p[2] * 90.0);
-    match kind {
-        Pattern::Plain => 1.0,
-        Pattern::Plate => {
-            let hole = PLATE_HOLES.iter().any(|&(hy, hz, r)| (y - hy).powi(2) + (z - hz).powi(2) < r * r);
-            // The slot along the front rim.
-            let slot = (y - 25.0).abs() < 0.8 && (-14.5..4.0).contains(&z);
-            if hole || slot {
-                0.45
-            } else {
-                1.0
-            }
-        }
-        Pattern::Grille => {
-            let f = |v: f32| (v / 1.1).rem_euclid(1.0);
-            if f(y) < 0.45 && f(z) < 0.45 {
-                0.75
-            } else {
-                1.0
-            }
-        }
-    }
-}
-
 /// Lit colour (linear) and opacity of a surface point. `n` faces the camera, `p` is the
 /// point in the model.
 fn shade(m: &Material, n: V, p: V, cam: &Camera) -> (V, f32) {
     let eye = [0.0, -1.0, 0.0];
-    let base = linear(m.rgb).map(|c| c * pattern(m.pattern, p));
+    let base = match m.pattern {
+        Pattern::Plain => linear(m.rgb),
+        Pattern::Face { black, left } => linear(texture::face(black, left, p[1] * 90.0, p[2] * 90.0)),
+    };
     if m.glow {
         return (base, 1.0);
     }

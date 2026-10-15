@@ -14,7 +14,9 @@
 //! a red square where the left one has a white square. One liberty for the viewer: the
 //! paddle is red, so that the right cup also shows from behind.
 //!
-//! Everything is drawn from these numbers; no texture, logo or lettering of the product.
+//! The geometry comes from these numbers. The outer face of a cup (shell, plate, grilles, the
+//! squares, the button) carries a texture baked from a render of the product, pixelised to
+//! 64 x 76 texels (`texture.rs`, `tools/bake-face.sh`) and projected along the cup's axis.
 
 use crate::model::{Edition, V3};
 
@@ -27,10 +29,11 @@ pub const RIGHT: f64 = 1.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Pattern {
     Plain,
-    /// The plate under a cover: holes, a slot and a microphone grille.
-    Plate,
-    /// Fine dots of a speaker-style grille.
-    Grille,
+    /// The pixelised outer face of a cup (`texture.rs`), looked up by the point's Y and Z.
+    Face {
+        black: bool,
+        left: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,18 +76,20 @@ pub struct Palette {
     pub slider: Material,
     pub pad: Material,
     pub strap: Material,
+    /// The outer face's cap, and what stands on it: all of them take the face texture.
+    pub face: Material,
     pub plate: Material,
     pub frame: Material,
     pub grille: Material,
     pub cover: Material,
-    pub right_mark: Material,
-    pub left_mark: Material,
+    pub paddle: Material,
     pub control: Material,
     pub port: Material,
 }
 
 pub fn palette(e: Edition) -> Palette {
     let red = Material { glow: true, ..plain(hex(0xc8302f), 0.0, 1.0, 0.0) };
+    let face = |black: bool, m: Material| Material { pattern: Pattern::Face { black, left: false }, ..m };
     match e {
         Edition::White => Palette {
             shell: plain(hex(0xc9ccd0), 0.55, 18.0, 0.45),
@@ -94,12 +99,12 @@ pub fn palette(e: Edition) -> Palette {
             slider: plain(hex(0xd2d4d6), 0.30, 14.0, 0.0),
             pad: plain(hex(0x262728), 0.12, 8.0, 0.0),
             strap: plain(hex(0x26282a), 0.6, 30.0, 0.55),
-            plate: Material { pattern: Pattern::Plate, ..plain(hex(0xd3d5d7), 0.15, 10.0, 0.0) },
-            frame: plain(hex(0xdddfe0), 0.2, 12.0, 0.0),
-            grille: Material { pattern: Pattern::Grille, ..plain(hex(0x8e9296), 0.05, 4.0, 0.0) },
+            face: face(false, plain(hex(0xc9ccd0), 0.45, 18.0, 0.15)),
+            plate: face(false, plain(hex(0xd3d5d7), 0.15, 10.0, 0.0)),
+            frame: face(false, plain(hex(0xdddfe0), 0.2, 12.0, 0.0)),
+            grille: face(false, plain(hex(0x8e9296), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.16, ..plain(hex(0xeaf2f6), 1.2, 60.0, 0.3) },
-            right_mark: red,
-            left_mark: plain(hex(0xf2f2f2), 0.1, 8.0, 0.0),
+            paddle: red,
             control: plain(hex(0xd7dadd), 0.5, 18.0, 0.3),
             port: plain(hex(0x141516), 0.0, 1.0, 0.0),
         },
@@ -111,12 +116,12 @@ pub fn palette(e: Edition) -> Palette {
             slider: plain(hex(0x393b3e), 0.30, 14.0, 0.0),
             pad: plain(hex(0x1e1f20), 0.12, 8.0, 0.0),
             strap: plain(hex(0x1c1d1f), 0.6, 30.0, 0.55),
-            plate: Material { pattern: Pattern::Plate, ..plain(hex(0x2c2f33), 0.15, 10.0, 0.0) },
-            frame: plain(hex(0x34373b), 0.2, 12.0, 0.0),
-            grille: Material { pattern: Pattern::Grille, ..plain(hex(0x1f2022), 0.05, 4.0, 0.0) },
+            face: face(true, plain(hex(0x34373c), 0.45, 18.0, 0.15)),
+            plate: face(true, plain(hex(0x2c2f33), 0.15, 10.0, 0.0)),
+            frame: face(true, plain(hex(0x34373b), 0.2, 12.0, 0.0)),
+            grille: face(true, plain(hex(0x1f2022), 0.05, 4.0, 0.0)),
             cover: Material { alpha: 0.30, ..plain(hex(0x4b5058), 1.2, 60.0, 0.3) },
-            right_mark: Material { rgb: hex(0xa8262c), ..red },
-            left_mark: plain(hex(0xe9e9e9), 0.1, 8.0, 0.0),
+            paddle: Material { rgb: hex(0xa8262c), ..red },
             control: plain(hex(0x3d4045), 0.5, 18.0, 0.3),
             port: plain(hex(0x0e0f10), 0.0, 1.0, 0.0),
         },
@@ -328,6 +333,11 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
     // Local frame: w outwards along X, u along Y (towards the face), v up.
     let f = Frame { o: [0.0; 3], u: [0.0, side, 0.0], v: [0.0, 0.0, 1.0], w: [side, 0.0, 0.0] };
     let n = 4;
+    // The textured parts show the left cup's markings on the left one.
+    let faced = |m: Material| match m.pattern {
+        Pattern::Face { black, .. } => Material { pattern: Pattern::Face { black, left: !right }, ..m },
+        Pattern::Plain => m,
+    };
     // Cushion: rounded section, its inner face a ring around the lining.
     b.loft(
         &f,
@@ -361,9 +371,9 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         true,
         c.shell,
     );
-    b.cap(&f, &rrect(CUP_W - 4.0, CUP_H - 4.0, CUP_R - 2.0, n), SHELL_OUT, 1.0, c.shell);
+    b.cap(&f, &rrect(CUP_W - 4.0, CUP_H - 4.0, CUP_R - 2.0, n), SHELL_OUT, 1.0, faced(c.face));
 
-    // Under the cover: the plate, the raised frame, the two grilles, the square.
+    // Under the cover: the plate, the raised frame, the two grilles.
     let cf = Frame { o: [0.0, 0.0, COVER_Z], ..f };
     b.loft(
         &cf,
@@ -374,7 +384,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         &[(SHELL_OUT, 0.0), (PLATE_OUT, 0.0)],
         (false, true),
         false,
-        c.plate,
+        faced(c.plate),
     );
     let ff = Frame { o: [0.0, 0.0, -7.0], ..f };
     b.loft(
@@ -386,7 +396,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         &[(PLATE_OUT - 0.5, 0.0), (PLATE_OUT + 1.5, 0.0)],
         (false, true),
         false,
-        c.frame,
+        faced(c.frame),
     );
     for z in [-7.0 + 8.5, -7.0 - 8.5] {
         let gf = Frame { o: [0.0, 0.0, z], ..f };
@@ -399,25 +409,9 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             &[(PLATE_OUT + 1.0, 0.0), (PLATE_OUT + 1.7, 0.0)],
             (false, true),
             false,
-            c.grille,
+            faced(c.grille),
         );
     }
-    let mark = if right { c.right_mark } else { c.left_mark };
-    // Squares sit towards the back of the plate (-Y), at mid height.
-    let sf = Frame { o: [0.0, -21.5, -1.0], ..f };
-    let sq = Frame { u: [0.0, 1.0, 0.0], ..sf };
-    b.loft(
-        &sq,
-        6.5,
-        6.5,
-        0.0,
-        0,
-        &[(PLATE_OUT - 0.5, 0.0), (PLATE_OUT + 0.3, 0.0)],
-        (false, true),
-        false,
-        mark,
-    );
-
     // The clear cover: straight sides, a rounded outer edge, a flat top.
     b.loft(
         &cf,
@@ -463,8 +457,6 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             true,
             c.control,
         );
-        let mut paddle = c.right_mark;
-        paddle.glow = true;
         b.loft(
             &back(-4.0, 112.0),
             3.0,
@@ -474,7 +466,7 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
             &[(-1.0, 0.0), (1.2, 0.0)],
             (false, true),
             false,
-            paddle,
+            c.paddle,
         );
         // Ports on the bottom edge: USB-C towards the front, then the jack.
         let bottom = |y: f64| Frame {
@@ -605,14 +597,15 @@ mod tests {
     }
 
     #[test]
-    fn the_marks_tell_the_sides_apart() {
+    fn the_controls_tell_the_sides_apart() {
         let c = palette(Edition::Black);
         let tris = headset(Edition::Black);
         let side = |m: Material| {
             tris.iter().filter(move |t| t.mat == m).flat_map(|t| t.v).map(|v| v[0].signum() * RIGHT)
         };
-        assert!(side(c.right_mark).all(|s| s > 0.0));
-        assert!(side(c.left_mark).all(|s| s < 0.0));
+        assert!(side(c.paddle).all(|s| s > 0.0));
+        let face = |left: bool| Material { pattern: Pattern::Face { black: true, left }, ..c.face };
+        assert!(side(face(false)).all(|s| s > 0.0) && side(face(true)).all(|s| s < 0.0));
         assert!(side(c.control).all(|s| s > 0.0));
         // Normals have unit length.
         assert!(tris.iter().flat_map(|t| t.n).all(|n| (dot(n, n) - 1.0).abs() < 1e-6));
