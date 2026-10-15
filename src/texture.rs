@@ -1,15 +1,15 @@
 //! The outer face of a cup as a PS2-sized texture: the right cup's orthographic render,
-//! cropped to the cup and box-filtered to 64 x 76 texels (`tools/bake-face.sh`), looked up
+//! cropped to the cup and box-filtered to 64 x 74 texels (`tools/bake-face.sh`), looked up
 //! with no filtering so the texels stay square blocks.
 //!
 //! One picture serves both cups: the left cup shows it mirrored, which falls out of using
 //! the same (y, z) lookup on both sides, with the red square turned white.
 
 const W: usize = 64;
-const H: usize = 76;
+const H: usize = 74;
 /// The cup's size in millimetres, which the texture covers edge to edge.
 const CUP_W: f32 = 78.0;
-const CUP_H: f32 = 92.0;
+const CUP_H: f32 = 90.0;
 
 static WHITE: &[u8] = include_bytes!("textures/face-white.rgb");
 static BLACK: &[u8] = include_bytes!("textures/face-black.rgb");

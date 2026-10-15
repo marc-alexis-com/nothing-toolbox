@@ -10,10 +10,19 @@ use crate::ps2;
 use std::sync::OnceLock;
 
 const RESET: &str = "\x1b[0m";
-const RED: &str = "\x1b[91m";
 
-/// Width of the text panel on the right.
-const PANEL: usize = 30;
+/// Width of the text window in the top right corner, over the picture.
+const WINDOW: usize = 30;
+/// Its background, a dark slate.
+const WINDOW_BG: &str = "\x1b[48;2;14;16;22m";
+
+/// What the window shows besides the pose.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Hud {
+    pub hz: f64,
+    pub az: f64,
+    pub el: f64,
+}
 
 /// Straight behind the head, at its height.
 pub const DEFAULT_AZIMUTH: f64 = 0.0;
@@ -181,10 +190,10 @@ fn rgb8(c: Rgb) -> [u8; 3] {
 
 /// Prints a picture as half blocks: the upper pixel in the foreground of `▀`, the lower one in
 /// its background, the terminal's own background where there is nothing.
-fn encode(p: &Picture, row: usize, out: &mut String) {
+fn encode(p: &Picture, row: usize, width: usize, out: &mut String) {
     let (mut fg, mut bg): (Option<[u8; 3]>, Option<[u8; 3]>) = (None, None);
     out.push_str(RESET);
-    for x in 0..p.pw {
+    for x in 0..width.min(p.pw) {
         let top = p.px[2 * row * p.pw + x].map(rgb8);
         let bottom = if 2 * row + 1 < p.ph { p.px[(2 * row + 1) * p.pw + x].map(rgb8) } else { None };
         let (ch, want_fg, want_bg) = match (top, bottom) {
@@ -210,54 +219,83 @@ fn encode(p: &Picture, row: usize, out: &mut String) {
     out.push_str(RESET);
 }
 
-/// Renders one full frame (ANSI) for pose `q`, `cols` x `rows` cells, plus side panel.
-pub fn render(q: Quat, edition: Edition, cols: usize, rows: usize, az: f64, el: f64, status: &str) -> String {
-    let w = cols.saturating_sub(PANEL + 1).max(20);
-    let h = rows.saturating_sub(1).max(10);
+/// Renders one full frame (ANSI) for pose `q`, `cols` x `rows` cells: the picture over the
+/// whole terminal, the window in its top right corner.
+pub fn render(q: Quat, edition: Edition, cols: usize, rows: usize, az: f64, el: f64, hud: &Hud) -> String {
+    let w = cols.max(20);
+    let h = rows.max(10);
     let picture = rasterize(q, edition, w, 2 * h, az, el);
 
     let mut out = String::from("\x1b[H");
-    compose(h, &panel(q), status, &mut out, |y, out| encode(&picture, y, out));
+    compose(h, w, &window(q, edition, hud), &mut out, |y, width, out| encode(&picture, y, width, out));
     out
 }
 
-/// The text on the right: pose in degrees and the raw quaternion.
-fn panel(q: Quat) -> [String; 12] {
+/// The window's lines: pose in degrees, the raw quaternion, the colour, the keys.
+fn window(q: Quat, edition: Edition, hud: &Hud) -> Vec<String> {
     let (yaw, pitch, roll) = euler_deg(&mat_from_quat(q));
-    [
+    let colour = match edition {
+        Edition::White => "white",
+        Edition::Black => "black",
+    };
+    let dim = "\x1b[90m";
+    vec![
         "\x1b[96mHead tracking\x1b[0m".to_string(),
-        String::new(),
-        format!("{RED}●{RESET} right ear cup"),
         String::new(),
         format!("yaw   {yaw:+7.1} deg"),
         format!("pitch {pitch:+7.1} deg"),
         format!("roll  {roll:+7.1} deg"),
         String::new(),
-        format!("q  x {:+.3}", q[0]),
-        format!("   y {:+.3}", q[1]),
-        format!("   z {:+.3}", q[2]),
-        format!("   w {:+.3}", q[3]),
+        format!("q  x {:+.3}   y {:+.3}", q[0], q[1]),
+        format!("   z {:+.3}   w {:+.3}", q[2], q[3]),
+        String::new(),
+        format!("\x1b[93m{:4.1} Hz\x1b[0m   view {:.0}/{:.0}", hud.hz, hud.az, hud.el),
+        format!("colour {colour}"),
+        String::new(),
+        format!("{dim}arrows/hjkl  orbit{RESET}"),
+        format!("{dim}0 view  r recentre{RESET}"),
+        format!("{dim}c colour    q quit{RESET}"),
     ]
 }
 
-/// `h` lines of picture (drawn by `row`), the panel beside the first ones, the status line.
+/// Length of `s` on screen: the text without its colour sequences.
+fn visible_len(s: &str) -> usize {
+    let (mut n, mut esc) = (0, false);
+    for c in s.chars() {
+        match (esc, c) {
+            (true, 'm') => esc = false,
+            (true, _) => {}
+            (false, '\x1b') => esc = true,
+            (false, _) => n += 1,
+        }
+    }
+    n
+}
+
+/// `h` lines over a picture `cols` wide (drawn by `row(y, width, out)`, `width` cells of it):
+/// the window sits flush right, one line down, in front of the picture.
 fn compose(
     h: usize,
-    panel: &[String],
-    status: &str,
+    cols: usize,
+    window: &[String],
     out: &mut String,
-    mut row: impl FnMut(usize, &mut String),
+    mut row: impl FnMut(usize, usize, &mut String),
 ) {
+    let inner = WINDOW - 2;
     for y in 0..h {
-        row(y, out);
-        if let Some(p) = panel.get(y) {
-            out.push_str("  ");
-            out.push_str(p);
+        match y.checked_sub(1).and_then(|i| window.get(i)).filter(|_| cols > WINDOW + 8) {
+            Some(line) => {
+                row(y, cols - WINDOW, out);
+                // The colour sequences end with a reset: bring the background back after each.
+                let line = line.replace(RESET, &format!("{RESET}{WINDOW_BG}"));
+                let pad = inner.saturating_sub(visible_len(&line));
+                out.push_str(&format!("{WINDOW_BG} {line}{}{RESET}", " ".repeat(pad + 1)));
+            }
+            None => row(y, cols, out),
         }
-        out.push_str("\x1b[K\n");
+        // The last line has no newline: a full screen would scroll.
+        out.push_str(if y + 1 < h { "\x1b[K\n" } else { "\x1b[K" });
     }
-    out.push_str(status);
-    out.push_str("\x1b[K");
 }
 
 /// Pixels per cell when the terminal does not say (a common kitty font size).
@@ -287,10 +325,10 @@ impl KittyView {
         rows: usize,
         az: f64,
         el: f64,
-        status: &str,
+        hud: &Hud,
     ) -> String {
-        let w = cols.saturating_sub(PANEL + 1).max(20);
-        let h = rows.saturating_sub(1).clamp(10, kitty::MAX_ROWS);
+        let w = cols.max(20);
+        let h = rows.clamp(10, kitty::MAX_ROWS);
         let (cw, ch) = match self.cell {
             Some((size, cell)) if size == (cols, rows) => cell,
             _ => {
@@ -309,8 +347,8 @@ impl KittyView {
         let mut out = String::new();
         let id = self.kitty.upload(&picture, w, h, &mut out);
         out.push_str("\x1b[H");
-        compose(h, &panel(q), status, &mut out, |y, out| {
-            Kitty::placeholder_row(id, y, w, out);
+        compose(h, w, &window(q, edition, hud), &mut out, |y, width, out| {
+            Kitty::placeholder_row(id, y, width, out);
             out.push_str(RESET);
         });
         self.kitty.retire(id, &mut out);
@@ -400,10 +438,17 @@ mod tests {
 
     #[test]
     fn camera_and_pose_change_the_picture() {
-        let a = render(ID, Edition::White, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "");
-        let b = render(ID, Edition::White, 100, 30, 35.0, 20.0, "");
-        let c =
-            render([0.259, 0.0, 0.0, 0.966], Edition::White, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "");
+        let a = render(ID, Edition::White, 100, 30, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, &Hud::default());
+        let b = render(ID, Edition::White, 100, 30, 35.0, 20.0, &Hud::default());
+        let c = render(
+            [0.259, 0.0, 0.0, 0.966],
+            Edition::White,
+            100,
+            30,
+            DEFAULT_AZIMUTH,
+            DEFAULT_ELEVATION,
+            &Hud::default(),
+        );
         assert_ne!(a, b);
         assert_ne!(a, c);
     }
@@ -455,9 +500,21 @@ mod tests {
 
     #[test]
     fn frames_have_one_line_per_row() {
-        let f = render(ID, Edition::White, 104, 28, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "status");
+        let f = render(ID, Edition::White, 104, 28, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, &Hud::default());
         assert_eq!(f.lines().count(), 28);
         assert!(f.contains('▀'));
+    }
+
+    #[test]
+    fn the_window_floats_over_a_full_width_picture() {
+        // Every line is as wide as the terminal, the window's lines included, and the window
+        // names the colour.
+        let f = render(ID, Edition::Black, 104, 28, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, &Hud::default());
+        for line in f.trim_start_matches("\x1b[H").split('\n') {
+            assert_eq!(visible_len(&line.replace("\x1b[K", "")), 104, "{line:?}");
+        }
+        assert!(f.contains("colour black") && f.contains("c colour"));
+        assert!(!f.contains("right ear cup"));
     }
 
     #[test]
@@ -472,7 +529,7 @@ mod tests {
 
     #[test]
     fn tiny_terminal_does_not_panic() {
-        let _ = render([0.259, 0.0, 0.0, 0.966], Edition::White, 5, 3, 0.0, 0.0, "");
+        let _ = render([0.259, 0.0, 0.0, 0.966], Edition::White, 5, 3, 0.0, 0.0, &Hud::default());
     }
 
     /// Writes what `headtrack --viz` prints in kitty through tmux, for three poses, to
@@ -490,7 +547,15 @@ mod tests {
         let px = |k: &str, d: f64| std::env::var(k).map(|v| v.parse().unwrap()).unwrap_or(d);
         view.cell = Some(((cols, rows), (px("CW", 10.0), px("CH", 21.0))));
         for (n, q) in [ID, [0.259, 0.0, 0.0, 0.966], [0.0, 0.0, 0.383, 0.924]].iter().enumerate() {
-            let f = view.render(*q, Edition::White, cols, rows, DEFAULT_AZIMUTH, DEFAULT_ELEVATION, "status");
+            let f = view.render(
+                *q,
+                Edition::White,
+                cols,
+                rows,
+                DEFAULT_AZIMUTH,
+                DEFAULT_ELEVATION,
+                &Hud::default(),
+            );
             std::fs::write(format!("{dir}/stream-{n}.bin"), f).unwrap();
         }
         std::mem::forget(view);

@@ -1396,7 +1396,7 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
     }
 
     // Draw the headset in its own colour (C00C: 0x01 black, 0x09 white).
-    let edition = match ctx.get(cmd::GET_COLOR).ok().and_then(|p| p.first().copied()) {
+    let mut edition = match ctx.get(cmd::GET_COLOR).ok().and_then(|p| p.first().copied()) {
         Some(0x01) => model::Edition::Black,
         _ => model::Edition::White,
     };
@@ -1409,7 +1409,6 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
     let mut drawn = None;
     let mut reference: Option<headtrack::Quat> = None;
     let mut stamps: std::collections::VecDeque<Instant> = Default::default();
-    let mut count = 0u64;
     let mut last_draw = Instant::now() - Duration::from_secs(1);
     loop {
         if signals::stop_requested() {
@@ -1425,7 +1424,6 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
                     if stamps.len() > 40 {
                         stamps.pop_front();
                     }
-                    count += 1;
                 }
             }
             Ok(_) => {}
@@ -1451,6 +1449,13 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
                     reference = Some(q);
                     (az, el) = (viz::DEFAULT_AZIMUTH, viz::DEFAULT_ELEVATION);
                 }
+                // Swap the colour of the model (the headset's own is the one shown at first).
+                b'c' | b'C' => {
+                    edition = match edition {
+                        model::Edition::White => model::Edition::Black,
+                        model::Edition::Black => model::Edition::White,
+                    }
+                }
                 b'l' => az += 8.0,
                 b'h' => az -= 8.0,
                 b'k' => el = (el + 8.0).min(85.0),
@@ -1469,24 +1474,18 @@ fn headtrack_cmd(ctx: &Ctx, viz: bool, blocks: bool) -> Res<()> {
                 }
                 _ => 0.0,
             };
-            let status = format!(
-                "\x1b[93m{hz:4.1} Hz\x1b[0m |q| {:.4} frames {count}  view {:.0}/{:.0}  \
-                 arrows/hjkl orbit  0 reset view  r recenter  q quit",
-                headtrack::norm(q),
-                az.rem_euclid(360.0),
-                el
-            );
+            let hud = viz::Hud { hz, az: az.rem_euclid(360.0), el };
             let (cols, rows) = viz::terminal_size();
             let frame = match pictures.as_mut() {
                 Some(view) => {
-                    let scene = Some((shown, az, el, cols, rows));
+                    let scene = Some((shown, edition, az, el, cols, rows, hz.round() as i32));
                     if scene == drawn {
                         continue;
                     }
                     drawn = scene;
-                    view.render(shown, edition, cols, rows, az, el, &status)
+                    view.render(shown, edition, cols, rows, az, el, &hud)
                 }
-                None => viz::render(shown, edition, cols, rows, az, el, &status),
+                None => viz::render(shown, edition, cols, rows, az, el, &hud),
             };
             print!("{frame}");
             let _ = std::io::stdout().flush();

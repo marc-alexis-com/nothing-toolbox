@@ -3,8 +3,8 @@
 //! head-tracking frame of `model.rs`: Z up, +X the wearer's right, +Y the face.
 //!
 //! Worn, seen from outside the head along X, each cup is a stack: a leather cushion (18 mm),
-//! an aluminium shell (12.5 mm, a rounded rectangle 78 x 92 mm), and a clear cover standing
-//! 9.5 mm proud (an oval 57 x 69 mm, a little below the centre). Under the cover, a moulded
+//! an aluminium shell (12.5 mm, a rounded rectangle 78 x 90 mm), and a clear cover standing
+//! 9.5 mm proud (an oval 59 x 73 mm, 5.6 mm below the centre). Under the cover, a moulded
 //! plate with a raised "cassette" frame and two round grilles. A flat Z-shaped strip of
 //! black metal hangs each cup by the top of its cover from a slider at the end of the
 //! headband, which is nearly an arc with a pad under its top.
@@ -16,7 +16,7 @@
 //!
 //! The geometry comes from these numbers. The outer face of a cup (shell, plate, grilles, the
 //! squares, the button) carries a texture baked from a render of the product, pixelised to
-//! 64 x 76 texels (`texture.rs`, `tools/bake-face.sh`) and projected along the cup's axis.
+//! 64 x 74 texels (`texture.rs`, `tools/bake-face.sh`) and projected along the cup's axis.
 
 use crate::model::{Edition, V3};
 
@@ -335,12 +335,12 @@ impl Builder {
 /// The cushion: a squarish oval about the shell's size, a wall 19 mm wide round an opening
 /// of about 33 x 54 mm (measured on a photo of the inside).
 const CUSH_W: f64 = 76.0;
-const CUSH_H: f64 = 92.0;
+const CUSH_H: f64 = 90.0;
 const CUSH_WALL: f64 = 19.0;
 
 /// The cup outline (aluminium shell), in millimetres.
 const CUP_W: f64 = 78.0;
-const CUP_H: f64 = 92.0;
+const CUP_H: f64 = 90.0;
 const CUP_R: f64 = 22.0;
 /// Distances from the centre along X: cushion tip, shell, cover. The stack is 40 mm (cushion
 /// 18, shell 12.5, cover 9.5, from the side render) and the whole headset about 190 mm across
@@ -350,9 +350,9 @@ const SHELL_IN: f64 = CUSHION_IN + 18.0;
 const SHELL_OUT: f64 = SHELL_IN + 12.5;
 const COVER_OUT: f64 = SHELL_OUT + 9.5;
 /// The cover and plate, centred a little below the cup's centre.
-const COVER_W: f64 = 57.0;
-const COVER_H: f64 = 69.0;
-const COVER_Z: f64 = -4.0;
+const COVER_W: f64 = 59.0;
+const COVER_H: f64 = 73.0;
+const COVER_Z: f64 = -5.6;
 const PLATE_OUT: f64 = SHELL_OUT + 5.5;
 /// The headband: an arc through the sliders' centre line, `BAND_R` out from the middle and
 /// `BAND_R * BAND_K` high, centred above the cups.
@@ -422,19 +422,19 @@ fn cup(b: &mut Builder, c: &Palette, side: f64, right: bool) {
         false,
         faced(c.plate),
     );
-    let ff = Frame { o: [0.0, 0.0, -7.0], ..f };
+    let ff = Frame { o: [0.0, 0.0, -7.3], ..f };
     b.loft(
         &ff,
-        24.0,
-        46.0,
-        6.0,
+        18.0,
+        34.0,
+        5.0,
         1,
         &[(PLATE_OUT - 0.5, 0.0), (PLATE_OUT + 1.5, 0.0)],
         (false, true),
         false,
         faced(c.frame),
     );
-    for z in [-7.0 + 8.5, -7.0 - 8.5] {
+    for z in [2.4, -16.2] {
         let gf = Frame { o: [0.0, 0.0, z], ..f };
         b.loft(
             &gf,
