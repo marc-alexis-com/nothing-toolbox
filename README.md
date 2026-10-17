@@ -387,6 +387,13 @@ The source is small and dependency-light (`clap`, `clap_complete`, `libc`):
 | `src/signals.rs` | clean shutdown on Ctrl+C / SIGTERM |
 | `src/main.rs` | the command line |
 
+## Contributing
+
+This tool was worked out on one headset; it grows when people with other Nothing devices or
+firmwares share what theirs does. The most useful thing is the output of
+[`nothing info` and `nothing status`](https://github.com/marc-alexis-com/nothing-toolbox/issues/new?template=report-a-device.yml)
+(serial and addresses removed). [CONTRIBUTING.md](CONTRIBUTING.md) has the details.
+
 ## Acknowledgements
 
 The frame layout was first published by others, which got this project started:
